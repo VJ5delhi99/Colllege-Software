@@ -1,0 +1,23 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="900" fill="#08111F"/>
+  <rect width="1600" height="900" fill="url(#paint0_linear)"/>
+  <circle cx="1290" cy="160" r="220" fill="#22D3EE" fill-opacity="0.15"/>
+  <circle cx="260" cy="180" r="180" fill="#A855F7" fill-opacity="0.12"/>
+  <circle cx="820" cy="720" r="260" fill="#38BDF8" fill-opacity="0.12"/>
+  <path d="M274 612L512 520L750 612L512 704L274 612Z" fill="#0F172A" stroke="#F8FAFC" stroke-opacity="0.18" stroke-width="8"/>
+  <path d="M852 566L1076 478L1300 566L1076 654L852 566Z" fill="#111827" stroke="#F8FAFC" stroke-opacity="0.18" stroke-width="8"/>
+  <rect x="442" y="646" width="138" height="28" rx="14" fill="#E11D48"/>
+  <rect x="1008" y="600" width="138" height="28" rx="14" fill="#E11D48"/>
+  <path d="M550 544L594 742" stroke="#FBBF24" stroke-width="10" stroke-linecap="round"/>
+  <path d="M1118 502L1162 700" stroke="#FBBF24" stroke-width="10" stroke-linecap="round"/>
+  <rect x="188" y="96" width="1224" height="708" rx="40" stroke="#F8FAFC" stroke-opacity="0.08" stroke-width="2"/>
+  <text x="120" y="790" fill="#E2E8F0" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="700">Graduation Outcomes</text>
+  <text x="120" y="842" fill="#7DD3FC" font-family="Segoe UI, Arial, sans-serif" font-size="28" letter-spacing="6">UNIVERSITY360</text>
+  <defs>
+    <linearGradient id="paint0_linear" x1="180" y1="102" x2="1410" y2="830" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="0.45" stop-color="#111827"/>
+      <stop offset="1" stop-color="#082F49"/>
+    </linearGradient>
+  </defs>
+</svg>

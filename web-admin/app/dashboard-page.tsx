@@ -75,7 +75,7 @@ export default function DashboardPage() {
       <div className="mt-10 grid gap-4 xl:grid-cols-[1.35fr_0.95fr]">
         <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900/70 shadow-[0_30px_120px_rgba(15,23,42,0.45)]">
           <img
-            src="/images/graduation-hero.jpg"
+            src="/images/graduation-hero.svg"
             alt="Graduation caps and certificates raised in celebration"
             className="h-[420px] w-full object-cover"
           />
@@ -94,7 +94,7 @@ export default function DashboardPage() {
         <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 backdrop-blur">
           <div className="relative">
             <img
-              src="/images/student-spotlight.jpg"
+              src="/images/student-spotlight.svg"
               alt="Student holding notebooks and pointing toward highlighted campus updates"
               className="h-[260px] w-full object-cover object-top"
             />

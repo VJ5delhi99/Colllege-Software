@@ -89,7 +89,7 @@ public static class PlatformDefaults
         var mysqlConnection = builder.Configuration.GetConnectionString("mysql")
             ?? "server=localhost;port=3306;database=university360;user=root;password=local";
         builder.Services.AddDbContext<TDbContext>(options =>
-            options.UseMySql(mysqlConnection, ServerVersion.AutoDetect(mysqlConnection)));
+            options.UseMySql(mysqlConnection, new MySqlServerVersion(new Version(8, 4, 0))));
 
         var redisConnection = builder.Configuration.GetConnectionString("redis");
         if (!string.IsNullOrWhiteSpace(redisConnection))

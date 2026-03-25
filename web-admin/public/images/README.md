@@ -1,7 +1,7 @@
-Place the provided user images at these paths:
+Optional: replace the built-in SVG placeholders with real images at these paths:
 
-- `web-admin/public/images/graduation-hero.jpg`
-- `web-admin/public/images/student-spotlight.jpg`
+- `web-admin/public/images/graduation-hero.svg` or `graduation-hero.jpg`
+- `web-admin/public/images/student-spotlight.svg` or `student-spotlight.jpg`
 
 They are used by:
 

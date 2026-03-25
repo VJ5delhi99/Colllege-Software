@@ -1,18 +1,32 @@
-export function requireEnv(name: string): string {
+const defaults = {
+  NEXT_PUBLIC_IDENTITY_API_URL: "http://localhost:7001",
+  NEXT_PUBLIC_AUTHORIZATION_API_URL: "http://localhost:7016",
+  NEXT_PUBLIC_ACADEMIC_API_URL: "http://localhost:7002",
+  NEXT_PUBLIC_ATTENDANCE_API_URL: "http://localhost:7003",
+  NEXT_PUBLIC_COMMUNICATION_API_URL: "http://localhost:7004",
+  NEXT_PUBLIC_FINANCE_API_URL: "http://localhost:7006",
+  NEXT_PUBLIC_AI_ASSISTANT_URL: "http://localhost:7007/api/chat"
+} as const;
+
+function getEnv(name: keyof typeof defaults): string {
   const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+  if (value) {
+    return value;
   }
 
-  return value;
+  if (process.env.NODE_ENV !== "production") {
+    return defaults[name];
+  }
+
+  throw new Error(`Missing required environment variable: ${name}`);
 }
 
 export const apiConfig = {
-  identity: () => requireEnv("NEXT_PUBLIC_IDENTITY_API_URL"),
-  authorization: () => requireEnv("NEXT_PUBLIC_AUTHORIZATION_API_URL"),
-  academic: () => requireEnv("NEXT_PUBLIC_ACADEMIC_API_URL"),
-  attendance: () => requireEnv("NEXT_PUBLIC_ATTENDANCE_API_URL"),
-  communication: () => requireEnv("NEXT_PUBLIC_COMMUNICATION_API_URL"),
-  finance: () => requireEnv("NEXT_PUBLIC_FINANCE_API_URL"),
-  assistant: () => requireEnv("NEXT_PUBLIC_AI_ASSISTANT_URL")
+  identity: () => getEnv("NEXT_PUBLIC_IDENTITY_API_URL"),
+  authorization: () => getEnv("NEXT_PUBLIC_AUTHORIZATION_API_URL"),
+  academic: () => getEnv("NEXT_PUBLIC_ACADEMIC_API_URL"),
+  attendance: () => getEnv("NEXT_PUBLIC_ATTENDANCE_API_URL"),
+  communication: () => getEnv("NEXT_PUBLIC_COMMUNICATION_API_URL"),
+  finance: () => getEnv("NEXT_PUBLIC_FINANCE_API_URL"),
+  assistant: () => getEnv("NEXT_PUBLIC_AI_ASSISTANT_URL")
 };

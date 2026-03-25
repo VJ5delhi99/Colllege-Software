@@ -216,6 +216,43 @@ The repository covers more of the ERP now, but several areas are still partial r
 - `analytics-processor-service`: `7017`
 - `face-recognition-service`: `7100`
 
+### Local Infrastructure Ports
+
+- `mysql`: `13306`
+- `redis`: `16379`
+- `rabbitmq` AMQP: `15672`
+- `rabbitmq` management UI: `15673`
+- `minio` API: `19000`
+- `minio` console: `19001`
+- `clickhouse` HTTP: `18123`
+- `clickhouse` native/TCP: `19009`
+
+### Docker Container Names
+
+- `university360-mysql`
+- `university360-redis`
+- `university360-rabbitmq`
+- `university360-minio`
+- `university360-clickhouse`
+- `university360-identity-service`
+- `university360-authorization-service`
+- `university360-academic-service`
+- `university360-attendance-service`
+- `university360-face-recognition-service`
+- `university360-communication-service`
+- `university360-exam-service`
+- `university360-finance-service`
+- `university360-ai-assistant-service`
+- `university360-student-service`
+- `university360-hostel-service`
+- `university360-transport-service`
+- `university360-placement-service`
+- `university360-library-service`
+- `university360-lms-service`
+- `university360-ai-insights-service`
+- `university360-analytics-processor-service`
+- `university360-gateway-service`
+
 ### Frontend Environment Variables
 
 - Web:

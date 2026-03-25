@@ -1,76 +1,132 @@
-version: "3.9"
-
 services:
   mysql:
+    container_name: university360-mysql
     image: mysql:8.4
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: university360
       MYSQL_USER: app
       MYSQL_PASSWORD: app123!
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -proot --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     ports:
-      - "3306:3306"
+      - "13306:3306"
+    volumes:
+      - ./mysql/init:/docker-entrypoint-initdb.d
 
   redis:
+    container_name: university360-redis
     image: redis:7.4
     ports:
-      - "6379:6379"
+      - "16379:6379"
 
   rabbitmq:
+    container_name: university360-rabbitmq
     image: rabbitmq:3.13-management
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "15672:5672"
+      - "15673:15672"
 
   minio:
+    container_name: university360-minio
     image: minio/minio:RELEASE.2025-02-18T16-25-55Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "19000:9000"
+      - "19001:9001"
 
   clickhouse:
+    container_name: university360-clickhouse
     image: clickhouse/clickhouse-server:25.1
     ports:
-      - "8123:8123"
-      - "9009:9000"
+      - "18123:8123"
+      - "19009:9000"
 
   identity-service:
+    container_name: university360-identity-service
     build:
       context: ../..
       dockerfile: services/identity-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7001:8080"
-    depends_on: [mysql, redis, rabbitmq, minio, authorization-service]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      minio:
+        condition: service_started
+      authorization-service:
+        condition: service_started
 
   authorization-service:
+    container_name: university360-authorization-service
     build:
       context: ../..
       dockerfile: services/authorization-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7016:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   academic-service:
+    container_name: university360-academic-service
     build:
       context: ../..
       dockerfile: services/academic-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7002:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   attendance-service:
+    container_name: university360-attendance-service
     build:
       context: ../..
       dockerfile: services/attendance-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7003:8080"
-    depends_on: [mysql, redis, rabbitmq, minio, face-recognition-service]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      minio:
+        condition: service_started
+      face-recognition-service:
+        condition: service_started
 
   face-recognition-service:
+    container_name: university360-face-recognition-service
     build:
       context: ../..
       dockerfile: services/face-recognition-service/Dockerfile
@@ -78,105 +134,238 @@ services:
       - "7100:8000"
 
   communication-service:
+    container_name: university360-communication-service
     build:
       context: ../..
       dockerfile: services/communication-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7004:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   exam-service:
+    container_name: university360-exam-service
     build:
       context: ../..
       dockerfile: services/exam-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7005:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   finance-service:
+    container_name: university360-finance-service
     build:
       context: ../..
       dockerfile: services/finance-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7006:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   ai-assistant-service:
+    container_name: university360-ai-assistant-service
     build:
       context: ../..
       dockerfile: services/ai-assistant-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7007:8080"
-    depends_on: [mysql, redis, rabbitmq, academic-service, attendance-service, communication-service, exam-service]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      academic-service:
+        condition: service_started
+      attendance-service:
+        condition: service_started
+      communication-service:
+        condition: service_started
+      exam-service:
+        condition: service_started
 
   student-service:
+    container_name: university360-student-service
     build:
       context: ../..
       dockerfile: services/student-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7008:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   hostel-service:
+    container_name: university360-hostel-service
     build:
       context: ../..
       dockerfile: services/hostel-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7009:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   transport-service:
+    container_name: university360-transport-service
     build:
       context: ../..
       dockerfile: services/transport-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7010:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   placement-service:
+    container_name: university360-placement-service
     build:
       context: ../..
       dockerfile: services/placement-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7011:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   library-service:
+    container_name: university360-library-service
     build:
       context: ../..
       dockerfile: services/library-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7012:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   lms-service:
+    container_name: university360-lms-service
     build:
       context: ../..
       dockerfile: services/lms-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7013:8080"
-    depends_on: [mysql, redis, rabbitmq, minio]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      minio:
+        condition: service_started
 
   ai-insights-service:
+    container_name: university360-ai-insights-service
     build:
       context: ../..
       dockerfile: services/ai-insights-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7014:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   analytics-processor-service:
+    container_name: university360-analytics-processor-service
     build:
       context: ../..
       dockerfile: services/analytics-processor-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7017:8080"
-    depends_on: [mysql, redis, rabbitmq, clickhouse]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+      clickhouse:
+        condition: service_started
 
   gateway-service:
+    container_name: university360-gateway-service
     build:
       context: ../..
       dockerfile: services/gateway-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
     ports:
       - "7015:8080"
-    depends_on: [identity-service, academic-service, authorization-service, finance-service, attendance-service]
+    depends_on:
+      identity-service:
+        condition: service_started
+      academic-service:
+        condition: service_started
+      authorization-service:
+        condition: service_started
+      finance-service:
+        condition: service_started
+      attendance-service:
+        condition: service_started

@@ -1,0 +1,29 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="900" fill="#F8FAFC"/>
+  <rect width="1200" height="900" fill="url(#paint0_linear)"/>
+  <circle cx="918" cy="184" r="168" fill="#FB7185" fill-opacity="0.14"/>
+  <circle cx="290" cy="714" r="224" fill="#22D3EE" fill-opacity="0.14"/>
+  <path d="M756 318C756 244.023 815.969 184 889.944 184H896.056C970.031 184 1030 244.023 1030 318V444H756V318Z" fill="#F1C27D"/>
+  <rect x="770" y="430" width="248" height="274" rx="46" fill="#EF4444"/>
+  <rect x="874" y="510" width="174" height="238" rx="20" fill="#111827"/>
+  <rect x="842" y="490" width="168" height="210" rx="16" fill="#FACC15"/>
+  <rect x="892" y="536" width="128" height="168" rx="12" fill="#1F2937"/>
+  <path d="M914 570L946 536L978 570L1010 536V666H914V570Z" fill="#38BDF8"/>
+  <path d="M914 666L964 610L1014 666H914Z" fill="#A855F7"/>
+  <path d="M230 340H602" stroke="#CBD5E1" stroke-width="16" stroke-linecap="round"/>
+  <path d="M230 410H540" stroke="#CBD5E1" stroke-width="16" stroke-linecap="round"/>
+  <path d="M230 480H650" stroke="#CBD5E1" stroke-width="16" stroke-linecap="round"/>
+  <path d="M230 590H554" stroke="#94A3B8" stroke-width="16" stroke-linecap="round"/>
+  <path d="M230 660H470" stroke="#94A3B8" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="792" cy="288" r="22" fill="#111827"/>
+  <circle cx="934" cy="288" r="22" fill="#111827"/>
+  <path d="M840 346C862.667 365.333 886.667 365.333 912 346" stroke="#7C2D12" stroke-width="10" stroke-linecap="round"/>
+  <text x="92" y="116" fill="#0F172A" font-family="Segoe UI, Arial, sans-serif" font-size="64" font-weight="700">Student Spotlight</text>
+  <text x="92" y="170" fill="#475569" font-family="Segoe UI, Arial, sans-serif" font-size="28">Fallback local artwork for the admin dashboard</text>
+  <defs>
+    <linearGradient id="paint0_linear" x1="74" y1="84" x2="1100" y2="850" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E2E8F0"/>
+    </linearGradient>
+  </defs>
+</svg>
