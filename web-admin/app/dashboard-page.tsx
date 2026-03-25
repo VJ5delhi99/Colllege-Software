@@ -72,6 +72,44 @@ export default function DashboardPage() {
 
       {error ? <div className="mt-6 rounded-3xl border border-amber-400/20 bg-amber-500/10 p-4 text-amber-100">{error}</div> : null}
 
+      <div className="mt-10 grid gap-4 xl:grid-cols-[1.35fr_0.95fr]">
+        <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900/70 shadow-[0_30px_120px_rgba(15,23,42,0.45)]">
+          <img
+            src="/images/graduation-hero.jpg"
+            alt="Graduation caps and certificates raised in celebration"
+            className="h-[420px] w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/35 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 p-8">
+            <p className="text-xs uppercase tracking-[0.35em] text-cyan-300">Institution Snapshot</p>
+            <h2 className="mt-3 max-w-2xl text-3xl font-semibold text-white">
+              Graduation readiness, outcomes, and academic delivery on one operational surface.
+            </h2>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-200/90">
+              Use live attendance, fee, exam, and scheduling signals to track campus momentum before every milestone review.
+            </p>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 backdrop-blur">
+          <div className="relative">
+            <img
+              src="/images/student-spotlight.jpg"
+              alt="Student holding notebooks and pointing toward highlighted campus updates"
+              className="h-[260px] w-full object-cover object-top"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent" />
+          </div>
+          <div className="p-6">
+            <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Student Spotlight</p>
+            <h3 className="mt-3 text-2xl font-semibold text-white">Design the student journey around the moments that need action.</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-300">
+              Highlight results, fee follow-ups, course readiness, and communication campaigns without burying students in generic dashboards.
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {cards.map((card) => (
           <div key={card.title} className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">

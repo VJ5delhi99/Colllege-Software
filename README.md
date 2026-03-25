@@ -10,6 +10,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   /identity-service
   /academic-service
   /attendance-service
+  /authorization-service
   /communication-service
   /exam-service
   /finance-service
@@ -20,8 +21,10 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   /library-service
   /lms-service
   /ai-insights-service
+  /analytics-processor-service
   /gateway-service
   /ai-assistant-service
+  /face-recognition-service
 /mobile-app
 /web-admin
 /infrastructure
@@ -33,10 +36,10 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 
 ### Platform
 
-- .NET 9 microservice baseline with Minimal APIs, EF Core, MySQL, Redis/HybridCache hooks, MassTransit, RabbitMQ, OpenTelemetry, Serilog, rate limiting, CORS defaults, and basic migrations helpers.
-- Shared building blocks for authentication hooks, tenant settings, telemetry, caching, infrastructure conventions, and role-based endpoint filters.
-- Docker Compose stack for MySQL, Redis, RabbitMQ, and the implemented API services.
-- Solution and CI entries for backend services plus test project scaffolding.
+- .NET 9 microservice baseline with Minimal APIs, EF Core, MySQL, Redis/HybridCache hooks, MassTransit, RabbitMQ, OpenTelemetry, Serilog, rate limiting, CORS defaults, health probes, and migration-first database startup.
+- Shared building blocks for JWT auth, permission-based endpoint filters, tenant settings, telemetry, caching, signed object-storage URLs, and production secret validation.
+- Docker Compose stack for MySQL, Redis, RabbitMQ, MinIO, ClickHouse, face-recognition inference, and the implemented API services.
+- Solution and CI entries for backend services, frontend build validation, and test project coverage.
 
 ### Identity And Security
 
@@ -44,9 +47,12 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - role catalog endpoint
 - user list/detail endpoints
 - JWT token issuance endpoint: `POST /api/v1/auth/token`
-- development signing-key based JWT validation support
-- endpoint-level RBAC filter support through `RequireRoles(...)`
+- refresh-token endpoint and persisted auth sessions
+- passwordless challenge endpoint and MFA challenge flow
+- development signing-key based JWT validation support with production secret enforcement
+- endpoint-level RBAC and permission filter support through `RequireRoles(...)` and `RequirePermissions(...)`
 - AI assistant endpoints require authenticated JWT claims; demo-role headers are no longer accepted
+- centralized `authorization-service` for roles, permissions, user-role assignments, and service policy mappings
 
 ### Core ERP Services
 
@@ -58,7 +64,11 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   - seeded attendance records
   - per-student attendance summary
   - QR session lifecycle endpoints
-  - face-recognition verification boundary endpoint
+  - face-recognition upload, verify, and match-and-record endpoints
+- `authorization-service`
+  - centralized permissions catalog
+  - role creation and permission assignment
+  - user-role assignment and route policy mapping
 - `communication-service`
   - seeded announcements and principal blog-style content
   - announcement creation and listing
@@ -67,9 +77,11 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   - seeded published results
   - result publishing and summaries
 - `finance-service`
-  - seeded payments
-  - payment summaries
-  - mock payment-intent endpoint for provider integration boundaries
+  - seeded payments and invoice references
+  - payment session creation
+  - provider webhook verification endpoints
+  - refund workflow endpoint
+  - reconciliation worker and run history
 - `student-service`
   - student profile endpoints
 - `hostel-service`
@@ -83,11 +95,16 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - `lms-service`
   - course materials
   - assignments
-  - file upload endpoint for assignment publishing
+  - signed upload/download URL flows backed by object-storage abstractions
 - `ai-insights-service`
   - seeded student performance/risk insights
+- `analytics-processor-service`
+  - event ingestion and ClickHouse HTTP export worker
 - `gateway-service`
+  - YARP-based authenticated routing
   - BFF aggregation endpoint for admin overview
+- `face-recognition-service`
+  - Python inference boundary service for AI attendance verification
 
 ### AI Assistant
 
@@ -106,12 +123,13 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - mobile AI chat screen with suggested prompts, live requests, and error states
 - web admin dashboard with live data fetches for enrollment, attendance, fee totals, announcements, and next class
 - web floating chatbot widget with live AI assistant requests
+- web RBAC console page for roles and permissions visibility
 - frontend apps require explicit API base URLs through environment variables instead of hardcoded localhost fallbacks
 
 ### Tests
 
-- test project scaffold in `/tests/Platform.Tests`
-- initial smoke test placeholder for CI/test pipeline setup
+- backend smoke tests for signed object storage and production secret validation in `/tests/Platform.Tests`
+- Playwright scaffold for web admin end-to-end coverage in `/web-admin/tests/e2e`
 
 ## QA Review Summary
 
@@ -125,11 +143,11 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - Added development CORS support so browser/mobile clients can call APIs in local setups.
 - Added finance service and the new ERP services to local infrastructure coverage.
 - Removed unauthenticated AI assistant demo-role access; assistant requests now require JWT-authenticated claims.
-- Added auth token issuance, RBAC hooks, QR lifecycle endpoints, file upload boundary, payment-intent boundary, gateway/BFF service, and test scaffolding.
+- Added auth token issuance, refresh sessions, passwordless/MFA flows, centralized RBAC service, QR lifecycle endpoints, signed upload flows, payment sessions/webhooks/refunds, gateway/BFF routing, and test scaffolding.
 - Expanded `.gitignore` for env files, logs, caches, and IDE noise.
 - Added explicit frontend environment-variable configuration so web and mobile clients do not depend on implicit localhost defaults.
 - Added tenant-aware filtering across the core dashboard and assistant-backed services using `X-Tenant-Id`.
-- Completed solution-level restore, build, and test verification in this workspace.
+- Completed solution-level restore, build, backend test, and web admin production build verification in this workspace.
 
 ## Current Functional Coverage
 
@@ -139,6 +157,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - mobile AI chat
 - web admin dashboard
 - web AI chat widget
+- web RBAC catalog
 
 ### Implemented Working Buttons
 
@@ -146,6 +165,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - mobile suggested chat prompts
 - mobile `Send`
 - web `Ask AI`
+- web `Open RBAC Console`
 - web widget `Close`
 - web suggested chat prompts
 - web widget `Send`
@@ -154,17 +174,17 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 
 The repository covers more of the ERP now, but several areas are still partial rather than production-complete:
 
-- no full multi-tenant auth server with SSO, passwordless, and MFA execution flows
-- no production-grade centralized RBAC/permission management UI
-- no real external payment gateway webhooks or reconciliation flows
-- no real face-recognition model/pipeline, only verification boundary scaffolding
-- no persistent object storage integration for uploaded files
-- no ClickHouse-backed analytics store yet, only AI insights service scaffolding
-- no production-grade API gateway policies, throttling strategy, or route governance
-- no end-to-end automated UI tests
-- Kubernetes and Helm coverage is still incomplete for the newer services
-- database strategy still relies on `EnsureCreated`; real migrations/versioning are not implemented
-- production secrets/config management is still missing
+- no full OpenID Connect authorization code flow, federated SSO, or external identity provider integration
+- passwordless and MFA flows are implemented as service challenges, but not yet connected to authenticator apps, email, or SMS delivery providers
+- payment webhooks and reconciliation are implemented as provider-ready workflows, but not yet wired to live Razorpay, Stripe, or PayPal credentials
+- the face-recognition service is a Python inference boundary and not yet a trained FaceNet/ArcFace deployment with Qdrant embeddings
+- object storage uses signed URL abstractions and MinIO-compatible config, but antivirus scanning and lifecycle policies are still pending
+- ClickHouse export is implemented through the analytics processor, but the downstream warehouse schema/dashboard layer is still minimal
+- API gateway routing and auth are in place, but advanced governance such as per-route quotas, WAF rules, and canary routing is still pending
+- Playwright test scaffolding exists, but full login, enrollment, attendance, results, and payment end-to-end flows are not yet automated
+- Helm now covers the main production services generically, but service-specific values, ingress, and secret wiring still need expansion
+- database startup now prefers migrations, but explicit EF migration files and rollback workflows still need to be authored per service
+- production secrets validation is implemented, but external secret providers such as Vault, AWS Secrets Manager, or Azure Key Vault are not yet integrated
 
 ## Local Development Notes
 
@@ -185,11 +205,15 @@ The repository covers more of the ERP now, but several areas are still partial r
 - `lms-service`: `7013`
 - `ai-insights-service`: `7014`
 - `gateway-service`: `7015`
+- `authorization-service`: `7016`
+- `analytics-processor-service`: `7017`
+- `face-recognition-service`: `7100`
 
 ### Frontend Environment Variables
 
 - Web:
   - `NEXT_PUBLIC_IDENTITY_API_URL`
+  - `NEXT_PUBLIC_AUTHORIZATION_API_URL`
   - `NEXT_PUBLIC_ACADEMIC_API_URL`
   - `NEXT_PUBLIC_ATTENDANCE_API_URL`
   - `NEXT_PUBLIC_COMMUNICATION_API_URL`
@@ -205,9 +229,15 @@ The repository covers more of the ERP now, but several areas are still partial r
 
 Use [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example) as the template. Web examples use `localhost`; mobile examples intentionally use `YOUR_MACHINE_IP` because Expo apps running on physical devices cannot call the host machine through `localhost`.
 
+### Image Assets
+
+- The web admin dashboard now includes editorial image slots for the provided graduation and student visuals.
+- Expected paths are documented in [README.md](c:/Users/user/Documents/GitHub/Colllege-Software/web-admin/public/images/README.md#L1).
+
 ### Authentication And Tenant Context
 
 - Frontend clients obtain a JWT from `identity-service` through `POST /api/v1/auth/token` before calling protected APIs.
+- JWTs now carry tenant, role, session, and permission claims.
 - Assistant requests must include `Authorization: Bearer <token>`.
 - Core dashboard and assistant-backed service queries are tenant-filtered via `X-Tenant-Id`.
 - Seed data is still demo-oriented, but it is now partitioned by tenant for the implemented core flows.
@@ -216,4 +246,5 @@ Use [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example
 
 - `dotnet build Colllege-Software.sln -v minimal`: passed on March 25, 2026
 - `dotnet test tests\Platform.Tests\Platform.Tests.csproj -v minimal --no-build`: passed on March 25, 2026
+- `npm run build` in `/web-admin` with required env vars: passed on March 25, 2026
 - The repository targets `net9.0` and builds successfully with the SDK available in this workspace.
