@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --project=mocked-ui",
+    "test:e2e:live": "playwright test --project=live-api"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.83.0",

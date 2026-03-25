@@ -136,6 +136,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 
 - backend smoke tests for signed object storage and production secret validation in `/tests/Platform.Tests`
 - Playwright coverage for dashboard, RBAC, and AI widget flows in `/web-admin/tests/e2e`
+- Playwright live environment coverage for login, enrollment, attendance, results, and payments in `/web-admin/tests/live`
 
 ## QA Review Summary
 
@@ -187,7 +188,7 @@ The repository covers more of the ERP now, but several areas are still partial r
 - object storage now includes scan records and lifecycle policy management, but external antivirus daemons and provider-native retention enforcement are still pending
 - ClickHouse schema bootstrap and analytics endpoints exist, but the downstream BI/dashboard layer is still intentionally minimal
 - API gateway governance now includes quotas, WAF-style blocking, and canary headers, but it does not yet include full policy management, ingress WAF integration, or progressive delivery automation
-- Playwright now covers dashboard, RBAC, and chat flows with mocked integrations, but a live environment end-to-end suite for login, enrollment, attendance, results, and payments is still pending
+- Playwright now covers dashboard, RBAC, and chat flows with mocked integrations, and also includes a live environment API-backed suite for login, enrollment, attendance, results, and payments
 - Helm now covers the main production services generically, but service-specific values, ingress, and secret wiring still need expansion
 - database startup now prefers migrations, but explicit EF migration files and rollback workflows still need to be authored per service
 - production secrets validation is implemented, but external secret providers such as Vault, AWS Secrets Manager, or Azure Key Vault are not yet integrated
@@ -234,6 +235,12 @@ The repository covers more of the ERP now, but several areas are still partial r
   - `EXPO_PUBLIC_AI_ASSISTANT_URL`
 
 Use [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example) as the template. Web examples use `localhost`; mobile examples intentionally use `YOUR_MACHINE_IP` because Expo apps running on physical devices cannot call the host machine through `localhost`.
+
+### Live Playwright Suite
+
+- Run `npm run test:e2e:live` from `/web-admin` against a running local stack.
+- The live suite uses the `PLAYWRIGHT_LIVE_*` variables documented in [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example#L15).
+- Covered flow: identity login, student enrollment creation, attendance session and record creation, result retrieval, payment session creation, webhook completion, and payment summary validation.
 
 ### Image Assets
 
