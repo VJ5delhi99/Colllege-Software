@@ -48,7 +48,9 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - user list/detail endpoints
 - JWT token issuance endpoint: `POST /api/v1/auth/token`
 - refresh-token endpoint and persisted auth sessions
-- passwordless challenge endpoint and MFA challenge flow
+- authorization-code token exchange and client catalog
+- federated identity provider start/callback endpoints
+- passwordless challenge endpoint, SMTP/SMS delivery hooks, and TOTP MFA provisioning flow
 - development signing-key based JWT validation support with production secret enforcement
 - endpoint-level RBAC and permission filter support through `RequireRoles(...)` and `RequirePermissions(...)`
 - AI assistant endpoints require authenticated JWT claims; demo-role headers are no longer accepted
@@ -78,6 +80,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   - result publishing and summaries
 - `finance-service`
   - seeded payments and invoice references
+  - provider catalog with config-driven public/secret/webhook credentials
   - payment session creation
   - provider webhook verification endpoints
   - refund workflow endpoint
@@ -96,15 +99,18 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   - course materials
   - assignments
   - signed upload/download URL flows backed by object-storage abstractions
+  - antivirus scan records and lifecycle policy endpoints
 - `ai-insights-service`
   - seeded student performance/risk insights
 - `analytics-processor-service`
   - event ingestion and ClickHouse HTTP export worker
+  - ClickHouse schema bootstrap and analytics dashboard endpoints
 - `gateway-service`
   - YARP-based authenticated routing
   - BFF aggregation endpoint for admin overview
+  - per-route quotas, basic WAF checks, and canary header forwarding
 - `face-recognition-service`
-  - Python inference boundary service for AI attendance verification
+  - Python enrollment and embedding-based verification service with Qdrant-compatible vector-store boundary
 
 ### AI Assistant
 
@@ -129,7 +135,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 ### Tests
 
 - backend smoke tests for signed object storage and production secret validation in `/tests/Platform.Tests`
-- Playwright scaffold for web admin end-to-end coverage in `/web-admin/tests/e2e`
+- Playwright coverage for dashboard, RBAC, and AI widget flows in `/web-admin/tests/e2e`
 
 ## QA Review Summary
 
@@ -174,14 +180,14 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 
 The repository covers more of the ERP now, but several areas are still partial rather than production-complete:
 
-- no full OpenID Connect authorization code flow, federated SSO, or external identity provider integration
-- passwordless and MFA flows are implemented as service challenges, but not yet connected to authenticator apps, email, or SMS delivery providers
-- payment webhooks and reconciliation are implemented as provider-ready workflows, but not yet wired to live Razorpay, Stripe, or PayPal credentials
-- the face-recognition service is a Python inference boundary and not yet a trained FaceNet/ArcFace deployment with Qdrant embeddings
-- object storage uses signed URL abstractions and MinIO-compatible config, but antivirus scanning and lifecycle policies are still pending
-- ClickHouse export is implemented through the analytics processor, but the downstream warehouse schema/dashboard layer is still minimal
-- API gateway routing and auth are in place, but advanced governance such as per-route quotas, WAF rules, and canary routing is still pending
-- Playwright test scaffolding exists, but full login, enrollment, attendance, results, and payment end-to-end flows are not yet automated
+- authorization-code exchange, provider federation hooks, and TOTP delivery flows are implemented, but full external IdP trust setup and managed client registration are still pending
+- passwordless and MFA now support SMTP/SMS delivery hooks and authenticator-app provisioning, but live provider credentials and branded notification templates still need to be configured
+- payment providers are now config-driven with provider-aware checkout metadata and HMAC verification, but live Razorpay, Stripe, and PayPal environments still need tenant-specific credential rollout and webhook registration
+- the face-recognition service now supports enrollment and embedding comparison, but it still needs real ArcFace/FaceNet model serving and a managed Qdrant deployment for production scale
+- object storage now includes scan records and lifecycle policy management, but external antivirus daemons and provider-native retention enforcement are still pending
+- ClickHouse schema bootstrap and analytics endpoints exist, but the downstream BI/dashboard layer is still intentionally minimal
+- API gateway governance now includes quotas, WAF-style blocking, and canary headers, but it does not yet include full policy management, ingress WAF integration, or progressive delivery automation
+- Playwright now covers dashboard, RBAC, and chat flows with mocked integrations, but a live environment end-to-end suite for login, enrollment, attendance, results, and payments is still pending
 - Helm now covers the main production services generically, but service-specific values, ingress, and secret wiring still need expansion
 - database startup now prefers migrations, but explicit EF migration files and rollback workflows still need to be authored per service
 - production secrets validation is implemented, but external secret providers such as Vault, AWS Secrets Manager, or Azure Key Vault are not yet integrated

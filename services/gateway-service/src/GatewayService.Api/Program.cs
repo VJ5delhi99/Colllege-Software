@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Caching.Memory;
 using Yarp.ReverseProxy.Transforms;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddPlatformDefaults<GatewayDbContext>();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<RouteGovernancePolicy>();
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"))
     .AddTransforms(context =>
@@ -14,6 +17,11 @@ builder.Services.AddReverseProxy()
                 ?? transformContext.HttpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault()
                 ?? "default";
             transformContext.ProxyRequest.Headers.TryAddWithoutValidation("X-Tenant-Id", tenantId);
+            var canary = transformContext.HttpContext.Request.Headers["X-Canary"].FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(canary))
+            {
+                transformContext.ProxyRequest.Headers.TryAddWithoutValidation("X-Canary", canary);
+            }
             return ValueTask.CompletedTask;
         });
     });
@@ -27,6 +35,25 @@ var app = builder.Build();
 app.UsePlatformDefaults();
 
 await app.EnsureDatabaseReadyAsync<GatewayDbContext>();
+
+app.Use(async (httpContext, next) =>
+{
+    var governance = httpContext.RequestServices.GetRequiredService<RouteGovernancePolicy>();
+    if (governance.IsBlocked(httpContext))
+    {
+        httpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await httpContext.Response.WriteAsJsonAsync(new { message = "Request blocked by gateway governance policy." });
+        return;
+    }
+
+    if (!governance.IsAllowed(httpContext))
+    {
+        httpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        return;
+    }
+
+    await next();
+});
 
 app.MapGet("/", () => Results.Ok(new { service = "gateway-service", status = "ready", mode = "yarp" }));
 
@@ -84,3 +111,24 @@ app.MapReverseProxy(proxyPipeline =>
 app.Run();
 
 public sealed class GatewayDbContext(Microsoft.EntityFrameworkCore.DbContextOptions<GatewayDbContext> options) : Microsoft.EntityFrameworkCore.DbContext(options) { }
+
+public sealed class RouteGovernancePolicy(IMemoryCache cache)
+{
+    private static readonly string[] BlockedPatterns = ["<script", "../", "drop table", "%3cscript"];
+
+    public bool IsBlocked(HttpContext httpContext)
+    {
+        var rawTarget = httpContext.Request.Path + httpContext.Request.QueryString;
+        return BlockedPatterns.Any(pattern => rawTarget.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public bool IsAllowed(HttpContext httpContext)
+    {
+        var key = $"gateway:{httpContext.Connection.RemoteIpAddress}:{httpContext.Request.Path}";
+        var limit = httpContext.Request.Path.StartsWithSegments("/api/v2/payments") ? 30 : 120;
+        var current = cache.Get<int?>(key) ?? 0;
+        current++;
+        cache.Set(key, current, TimeSpan.FromMinutes(1));
+        return current <= limit;
+    }
+}

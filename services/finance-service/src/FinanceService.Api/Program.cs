@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddPlatformDefaults<FinanceDbContext>();
 builder.Services.AddHostedService<PaymentReconciliationWorker>();
+builder.Services.AddSingleton<PaymentGatewayCatalog>();
 
 var app = builder.Build();
 app.UsePlatformDefaults();
@@ -13,6 +15,8 @@ await app.EnsureDatabaseReadyAsync<FinanceDbContext>();
 await SeedFinanceDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "finance-service", gateways = new[] { "Razorpay", "Stripe", "PayPal" } }));
+app.MapGet("/api/v1/payment-providers", (PaymentGatewayCatalog gateways) => Results.Ok(gateways.GetProviders()))
+    .RequirePermissions("finance.manage");
 
 app.MapPost("/api/v1/payments", async ([FromBody] RecordPaymentRequest request, FinanceDbContext dbContext) =>
 {
@@ -42,8 +46,14 @@ app.MapGet("/api/v1/payments/{studentId:guid}", async (Guid studentId, HttpConte
     await dbContext.Payments.Where(x => x.TenantId == httpContext.GetTenantId() && x.StudentId == studentId).ToListAsync())
     .RequirePermissions("finance.manage");
 
-app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest request, FinanceDbContext dbContext) =>
+app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
 {
+    var providerConfig = gateways.GetProvider(request.Provider);
+    if (providerConfig is null)
+    {
+        return Results.BadRequest(new { message = "Unsupported payment provider" });
+    }
+
     var session = new PaymentSession
     {
         Id = Guid.NewGuid(),
@@ -55,7 +65,9 @@ app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest 
         InvoiceNumber = request.InvoiceNumber,
         ProviderReference = $"{request.Provider.ToLowerInvariant()}_{Guid.NewGuid():N}",
         Status = "Pending",
-        CreatedAtUtc = DateTimeOffset.UtcNow
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        CheckoutUrl = $"{providerConfig.CheckoutBaseUrl.TrimEnd('/')}/{request.Provider.ToLowerInvariant()}/checkout/{Guid.NewGuid():N}",
+        ProviderPublicKey = providerConfig.PublicKey
     };
 
     dbContext.PaymentSessions.Add(session);
@@ -66,14 +78,14 @@ app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest 
         sessionId = session.Id,
         provider = session.Provider,
         providerReference = session.ProviderReference,
-        checkoutUrl = $"https://payments.university360.local/{session.Provider.ToLowerInvariant()}/checkout/{session.ProviderReference}"
+        checkoutUrl = session.CheckoutUrl,
+        publishableKey = session.ProviderPublicKey
     });
 }).RequirePermissions("finance.manage");
 
-app.MapPost("/api/v1/payment-webhooks/{provider}", async (string provider, [FromBody] PaymentWebhookRequest request, FinanceDbContext dbContext, IConfiguration configuration) =>
+app.MapPost("/api/v1/payment-webhooks/{provider}", async (string provider, [FromBody] PaymentWebhookRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
 {
-    var expectedSecret = configuration[$"Payments:{provider}:WebhookSecret"] ?? "development-webhook-secret";
-    if (!string.Equals(expectedSecret, request.Signature, StringComparison.Ordinal))
+    if (!gateways.VerifyWebhook(provider, request.PayloadJson, request.Signature))
     {
         return Results.Unauthorized();
     }
@@ -238,6 +250,8 @@ public sealed class PaymentSession
     public string Currency { get; set; } = "INR";
     public string InvoiceNumber { get; set; } = string.Empty;
     public string ProviderReference { get; set; } = string.Empty;
+    public string CheckoutUrl { get; set; } = string.Empty;
+    public string ProviderPublicKey { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending";
     public DateTimeOffset CreatedAtUtc { get; set; }
 }
@@ -285,6 +299,43 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
     public DbSet<PaymentRefund> Refunds => Set<PaymentRefund>();
     public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
 }
+
+public sealed class PaymentGatewayCatalog(IConfiguration configuration)
+{
+    public IReadOnlyCollection<PaymentProviderConfiguration> GetProviders() =>
+        new[] { "Razorpay", "Stripe", "PayPal" }.Select(GetProvider).OfType<PaymentProviderConfiguration>().ToArray();
+
+    public PaymentProviderConfiguration? GetProvider(string providerName)
+    {
+        if (!new[] { "Razorpay", "Stripe", "PayPal" }.Contains(providerName, StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return new PaymentProviderConfiguration(
+            providerName,
+            configuration[$"Payments:{providerName}:PublicKey"] ?? $"pk_test_{providerName.ToLowerInvariant()}",
+            configuration[$"Payments:{providerName}:SecretKey"] ?? $"sk_test_{providerName.ToLowerInvariant()}",
+            configuration[$"Payments:{providerName}:WebhookSecret"] ?? "development-webhook-secret",
+            configuration[$"Payments:{providerName}:CheckoutBaseUrl"] ?? "https://payments.university360.local");
+    }
+
+    public bool VerifyWebhook(string providerName, string payloadJson, string signature)
+    {
+        var provider = GetProvider(providerName);
+        if (provider is null)
+        {
+            return false;
+        }
+
+        using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(provider.WebhookSecret));
+        var computed = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payloadJson))).ToLowerInvariant();
+        return string.Equals(computed, signature, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(provider.WebhookSecret, signature, StringComparison.Ordinal);
+    }
+}
+
+public sealed record PaymentProviderConfiguration(string Name, string PublicKey, string SecretKey, string WebhookSecret, string CheckoutBaseUrl);
 
 public sealed class PaymentReconciliationWorker(IServiceProvider serviceProvider, ILogger<PaymentReconciliationWorker> logger) : BackgroundService
 {

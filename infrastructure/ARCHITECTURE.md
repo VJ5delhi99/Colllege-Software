@@ -12,24 +12,24 @@
 
 ## Current Service Map
 
-- `identity-service`: tenant-aware authentication, refresh sessions, passwordless and MFA hooks, permission-bearing JWT issuance
+- `identity-service`: tenant-aware authentication, refresh sessions, authorization-code exchange, federated provider hooks, passwordless delivery, TOTP MFA, and permission-bearing JWT issuance
 - `authorization-service`: centralized roles, permissions, user assignments, and route policy mappings
 - `academic-service`: curriculum, courses, credit units, semester scheduling
 - `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload and verification endpoints
 - `communication-service`: announcements, principal blogs, push notification orchestration
 - `exam-service`: assessment publication and GPA records
-- `finance-service`: payment recording, payment sessions, refunds, webhook processing, reconciliation runs
+- `finance-service`: payment recording, provider-aware payment sessions, HMAC webhook processing, refunds, reconciliation runs
 - `ai-assistant-service`: role-aware natural-language assistant with Semantic Kernel orchestration, typed service integrations, and RAG hooks
 - `student-service`: student profiles, department mapping, academic status
 - `hostel-service`: rooms, allocations, visitor logs
 - `transport-service`: routes and GPS tracking boundary
 - `placement-service`: drives, interviews, placement analytics
 - `library-service`: books and borrowing records
-- `lms-service`: materials, assignments, signed upload/download flows backed by object-storage abstractions
+- `lms-service`: materials, assignments, signed upload/download flows, scan records, and storage lifecycle policies
 - `ai-insights-service`: student risk and performance insights
-- `analytics-processor-service`: event ingestion plus ClickHouse HTTP export worker
-- `gateway-service`: YARP-based gateway and admin BFF aggregation layer
-- `face-recognition-service`: Python inference boundary for AI attendance
+- `analytics-processor-service`: event ingestion, ClickHouse schema bootstrap, export worker, and analytics dashboard endpoints
+- `gateway-service`: YARP-based gateway, admin BFF aggregation layer, quotas, WAF-style blocking, and canary headers
+- `face-recognition-service`: Python enrollment and embedding verification boundary for AI attendance
 
 ## Production Infrastructure
 
