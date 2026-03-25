@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { MotiView } from "moti";
 import { SafeAreaView, ScrollView, Text, TextInput, Pressable, View } from "react-native";
 import { getStudentSession } from "./auth-client";
 import { apiConfig } from "./api-config";
+import { AnimatedSurface } from "../components/AnimatedSurface";
 
 const suggestedPrompts = [
   "Check my attendance",
@@ -94,7 +94,7 @@ export default function ChatScreen() {
         </View>
 
         {messages.map((message, index) => (
-          <MotiView
+          <AnimatedSurface
             key={message.id}
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -109,7 +109,7 @@ export default function ChatScreen() {
             }}
           >
             <Text style={{ color: "white", lineHeight: 20 }}>{message.text}</Text>
-          </MotiView>
+          </AnimatedSurface>
         ))}
 
         {isTyping ? (

@@ -369,3 +369,64 @@ services:
         condition: service_started
       attendance-service:
         condition: service_started
+
+  web-admin:
+    container_name: university360-web-admin
+    build:
+      context: ../..
+      dockerfile: web-admin/Dockerfile
+    environment:
+      NEXT_PUBLIC_IDENTITY_API_URL: http://localhost:7001
+      NEXT_PUBLIC_AUTHORIZATION_API_URL: http://localhost:7016
+      NEXT_PUBLIC_ACADEMIC_API_URL: http://localhost:7002
+      NEXT_PUBLIC_ATTENDANCE_API_URL: http://localhost:7003
+      NEXT_PUBLIC_COMMUNICATION_API_URL: http://localhost:7004
+      NEXT_PUBLIC_FINANCE_API_URL: http://localhost:7006
+      NEXT_PUBLIC_AI_ASSISTANT_URL: http://localhost:7007/api/chat
+    ports:
+      - "3000:3000"
+    depends_on:
+      gateway-service:
+        condition: service_started
+      identity-service:
+        condition: service_started
+      authorization-service:
+        condition: service_started
+      academic-service:
+        condition: service_started
+      attendance-service:
+        condition: service_started
+      communication-service:
+        condition: service_started
+      finance-service:
+        condition: service_started
+      ai-assistant-service:
+        condition: service_started
+
+  mobile-app:
+    container_name: university360-mobile-app
+    build:
+      context: ../..
+      dockerfile: mobile-app/Dockerfile
+    environment:
+      EXPO_PUBLIC_IDENTITY_API_URL: http://localhost:7001
+      EXPO_PUBLIC_ACADEMIC_API_URL: http://localhost:7002
+      EXPO_PUBLIC_ATTENDANCE_API_URL: http://localhost:7003
+      EXPO_PUBLIC_COMMUNICATION_API_URL: http://localhost:7004
+      EXPO_PUBLIC_EXAM_API_URL: http://localhost:7005
+      EXPO_PUBLIC_AI_ASSISTANT_URL: http://localhost:7007/api/chat
+    ports:
+      - "3001:3001"
+    depends_on:
+      identity-service:
+        condition: service_started
+      academic-service:
+        condition: service_started
+      attendance-service:
+        condition: service_started
+      communication-service:
+        condition: service_started
+      exam-service:
+        condition: service_started
+      ai-assistant-service:
+        condition: service_started

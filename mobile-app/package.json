@@ -12,14 +12,18 @@
   "dependencies": {
     "expo": "~53.0.0",
     "expo-router": "~5.0.0",
+    "is-core-module": "^2.16.1",
     "lucide-react-native": "^0.511.0",
     "moti": "^0.30.0",
     "nativewind": "^4.1.23",
     "react": "19.0.0",
+    "react-dom": "19.0.0",
     "react-native": "0.79.0",
-    "react-native-reanimated": "~3.17.0"
+    "react-native-reanimated": "~3.17.0",
+    "react-native-web": "^0.20.0"
   },
   "devDependencies": {
+    "@types/react": "~19.0.10",
     "typescript": "^5.8.3"
   }
 }

@@ -1,10 +1,10 @@
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import { MotiView } from "moti";
 import { Bell, CalendarDays, GraduationCap, ScanLine } from "lucide-react-native";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { getStudentSession } from "./auth-client";
 import { apiConfig } from "./api-config";
+import { AnimatedSurface } from "../components/AnimatedSurface";
 
 type DashboardState = {
   attendance: string;
@@ -86,7 +86,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        <MotiView
+        <AnimatedSurface
           from={{ opacity: 0, translateY: 16 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: "timing", duration: 500 }}
@@ -105,9 +105,9 @@ export default function HomeScreen() {
           <Text style={{ color: "#bfd3ea", marginTop: 10 }}>
             {state.principalBlogBody}
           </Text>
-        </MotiView>
+        </AnimatedSurface>
 
-        <MotiView
+        <AnimatedSurface
           from={{ opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 120, type: "timing", duration: 500 }}
@@ -125,13 +125,13 @@ export default function HomeScreen() {
             {state.nextClassTitle}
           </Text>
           <Text style={{ color: "#b6c7df", marginTop: 8 }}>{state.nextClassMeta}</Text>
-        </MotiView>
+        </AnimatedSurface>
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
           {tiles.map((tile, index) => {
             const Icon = tile.icon;
             return (
-              <MotiView
+              <AnimatedSurface
                 key={tile.label}
                 from={{ opacity: 0, translateY: 12 }}
                 animate={{ opacity: 1, translateY: 0 }}
@@ -149,7 +149,7 @@ export default function HomeScreen() {
                 <Icon color="#a5f3fc" size={22} />
                 <Text style={{ color: "#dbeafe", marginTop: 18, fontSize: 14 }}>{tile.label}</Text>
                 <Text style={{ color: "white", marginTop: 8, fontSize: 22, fontWeight: "700" }}>{tile.value}</Text>
-              </MotiView>
+              </AnimatedSurface>
             );
           })}
         </View>

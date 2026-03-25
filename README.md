@@ -39,6 +39,7 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - .NET 9 microservice baseline with Minimal APIs, EF Core, MySQL, Redis/HybridCache hooks, MassTransit, RabbitMQ, OpenTelemetry, Serilog, rate limiting, CORS defaults, health probes, and migration-first database startup.
 - Shared building blocks for JWT auth, permission-based endpoint filters, tenant settings, telemetry, caching, signed object-storage URLs, and production secret validation.
 - Docker Compose stack for MySQL, Redis, RabbitMQ, MinIO, ClickHouse, face-recognition inference, and the implemented API services.
+- Docker Compose stack for MySQL, Redis, RabbitMQ, MinIO, ClickHouse, face-recognition inference, API services, the Next.js admin UI, and an Expo web preview for the mobile app.
 - Solution and CI entries for backend services, frontend build validation, and test project coverage.
 
 ### Identity And Security
@@ -272,6 +273,28 @@ The repository covers more of the ERP now, but several areas are still partial r
   - `EXPO_PUBLIC_AI_ASSISTANT_URL`
 
 Use [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example) as the template. Web examples use `localhost`; mobile examples intentionally use `YOUR_MACHINE_IP` because Expo apps running on physical devices cannot call the host machine through `localhost`.
+
+### One-Command Local Stack
+
+Start the full local platform, including backend services, web admin, and the Dockerized mobile web preview:
+
+```powershell
+docker compose -f infrastructure/docker/docker-compose.yml up -d --build
+```
+
+Main local URLs:
+
+- web admin: `http://localhost:3000`
+- mobile web preview: `http://localhost:3001`
+- gateway/API entry: `http://localhost:7015`
+- RabbitMQ management: `http://localhost:15673`
+- MinIO console: `http://localhost:19001`
+
+Notes:
+
+- The `web-admin` container runs the Next.js development server on port `3000`.
+- The `mobile-app` container runs Expo in web mode on port `3001` so it can participate in the same local stack.
+- Native mobile emulator/device sessions still require running Expo locally outside Docker; the containerized mobile service is intended for one-command browser preview and integration validation.
 
 ### Live Playwright Suite
 
