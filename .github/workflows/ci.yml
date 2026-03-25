@@ -13,29 +13,32 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
-      - name: Restore identity service
-        run: dotnet restore services/identity-service/src/IdentityService.Api/IdentityService.Api.csproj
-      - name: Restore academic service
-        run: dotnet restore services/academic-service/src/AcademicService.Api/AcademicService.Api.csproj
-      - name: Restore AI assistant service
-        run: dotnet restore services/ai-assistant-service/src/AiAssistantService.Api/AiAssistantService.Api.csproj
-      - name: Restore student service
-        run: dotnet restore services/student-service/src/StudentService.Api/StudentService.Api.csproj
-      - name: Restore LMS service
-        run: dotnet restore services/lms-service/src/LmsService.Api/LmsService.Api.csproj
-      - name: Restore tests
-        run: dotnet restore tests/Platform.Tests/Platform.Tests.csproj
+      - name: Restore solution
+        run: dotnet restore Colllege-Software.sln
+      - name: Build solution
+        run: dotnet build Colllege-Software.sln -c Release --no-restore
+      - name: Run backend tests
+        run: dotnet test tests/Platform.Tests/Platform.Tests.csproj -c Release --no-build
 
-  frontend:
+  web-admin:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-admin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Install web admin deps
-        working-directory: web-admin
+      - name: Install web admin dependencies
         run: npm install
-      - name: Install mobile app deps
-        working-directory: mobile-app
-        run: npm install
+      - name: Build web admin
+        env:
+          NEXT_PUBLIC_IDENTITY_API_URL: http://localhost:7001
+          NEXT_PUBLIC_AUTHORIZATION_API_URL: http://localhost:7016
+          NEXT_PUBLIC_ACADEMIC_API_URL: http://localhost:7002
+          NEXT_PUBLIC_ATTENDANCE_API_URL: http://localhost:7003
+          NEXT_PUBLIC_COMMUNICATION_API_URL: http://localhost:7004
+          NEXT_PUBLIC_FINANCE_API_URL: http://localhost:7006
+          NEXT_PUBLIC_AI_ASSISTANT_URL: http://localhost:7007/api/chat
+        run: npm run build

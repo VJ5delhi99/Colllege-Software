@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.Extensions.Configuration;
@@ -27,6 +28,7 @@ public static class PlatformDefaults
         ConfigureLogging(builder);
 
         builder.Services.Configure<PlatformOptions>(builder.Configuration.GetSection(PlatformOptions.SectionName));
+        builder.Services.AddProductionSecretsValidation(builder.Configuration, builder.Environment);
         builder.Services.AddProblemDetails();
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddCors(options =>
@@ -44,6 +46,7 @@ public static class PlatformDefaults
             });
         });
         builder.Services.AddAuthorization();
+        builder.Services.AddObjectStorage(builder.Configuration);
         builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
@@ -118,7 +121,9 @@ public static class PlatformDefaults
                 .AddRuntimeInstrumentation()
                 .AddOtlpExporter());
 
-        builder.Services.AddHealthChecks();
+        builder.Services.AddHealthChecks()
+            .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(), tags: ["live"])
+            .AddCheck("startup", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(), tags: ["ready"]);
     }
 
     public static void UsePlatformDefaults(this WebApplication app)
@@ -129,6 +134,14 @@ public static class PlatformDefaults
         app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("live")
+        });
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready")
+        });
         app.MapHealthChecks("/health");
     }
 

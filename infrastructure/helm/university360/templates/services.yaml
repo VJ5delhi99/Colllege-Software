@@ -1,0 +1,67 @@
+{{- range $name, $service := .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $name | kebabcase }}
+spec:
+  replicas: {{ $.Values.autoscaling.minReplicas }}
+  selector:
+    matchLabels:
+      app: {{ $.Release.Name }}-{{ $name | kebabcase }}
+  template:
+    metadata:
+      labels:
+        app: {{ $.Release.Name }}-{{ $name | kebabcase }}
+    spec:
+      containers:
+        - name: {{ $name | kebabcase }}
+          image: "{{ $service.image }}:{{ $service.tag }}"
+          ports:
+            - containerPort: {{ $service.port }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: {{ $service.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: {{ $service.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $.Release.Name }}-{{ $name | kebabcase }}
+spec:
+  selector:
+    app: {{ $.Release.Name }}-{{ $name | kebabcase }}
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: {{ $service.port }}
+---
+{{- if $.Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $.Release.Name }}-{{ $name | kebabcase }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $.Release.Name }}-{{ $name | kebabcase }}
+  minReplicas: {{ $.Values.autoscaling.minReplicas }}
+  maxReplicas: {{ $.Values.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $.Values.autoscaling.targetCPUUtilizationPercentage }}
+---
+{{- end }}
+{{- end }}

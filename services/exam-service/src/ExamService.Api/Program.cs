@@ -8,6 +8,7 @@ builder.AddPlatformDefaults<ExamDbContext>();
 var app = builder.Build();
 app.UsePlatformDefaults();
 
+await app.EnsureDatabaseReadyAsync<ExamDbContext>();
 await SeedExamDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "exam-service", security = "publish-control-enabled" }));
@@ -54,8 +55,6 @@ static async Task SeedExamDataAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<ExamDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
-
     if (await dbContext.StudentResults.AnyAsync())
     {
         return;

@@ -8,6 +8,7 @@ builder.AddPlatformDefaults<AcademicDbContext>();
 var app = builder.Build();
 app.UsePlatformDefaults();
 
+await app.EnsureDatabaseReadyAsync<AcademicDbContext>();
 await SeedAcademicDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "academic-service", status = "ready" }));
@@ -58,8 +59,6 @@ static async Task SeedAcademicDataAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AcademicDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
-
     if (await dbContext.Courses.AnyAsync())
     {
         return;

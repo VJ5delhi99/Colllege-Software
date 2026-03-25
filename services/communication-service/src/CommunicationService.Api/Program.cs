@@ -8,6 +8,7 @@ builder.AddPlatformDefaults<CommunicationDbContext>();
 var app = builder.Build();
 app.UsePlatformDefaults();
 
+await app.EnsureDatabaseReadyAsync<CommunicationDbContext>();
 await SeedCommunicationDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "communication-service", features = new[] { "blogs", "announcements", "push-alerts" } }));
@@ -46,8 +47,6 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<CommunicationDbContext>();
-    await dbContext.Database.EnsureCreatedAsync();
-
     if (await dbContext.Announcements.AnyAsync())
     {
         return;

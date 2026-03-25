@@ -2,9 +2,46 @@ services:
   identity:
     image: university360/identity-service
     tag: latest
+    port: 8080
+  authorization:
+    image: university360/authorization-service
+    tag: latest
+    port: 8080
   academic:
     image: university360/academic-service
     tag: latest
+    port: 8080
+  attendance:
+    image: university360/attendance-service
+    tag: latest
+    port: 8080
+  communication:
+    image: university360/communication-service
+    tag: latest
+    port: 8080
+  exam:
+    image: university360/exam-service
+    tag: latest
+    port: 8080
+  finance:
+    image: university360/finance-service
+    tag: latest
+    port: 8080
   aiAssistant:
     image: university360/ai-assistant-service
     tag: latest
+    port: 8080
+  gateway:
+    image: university360/gateway-service
+    tag: latest
+    port: 8080
+  analyticsProcessor:
+    image: university360/analytics-processor-service
+    tag: latest
+    port: 8080
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70

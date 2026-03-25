@@ -22,122 +22,161 @@ services:
       - "5672:5672"
       - "15672:15672"
 
+  minio:
+    image: minio/minio:RELEASE.2025-02-18T16-25-55Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.1
+    ports:
+      - "8123:8123"
+      - "9009:9000"
+
   identity-service:
     build:
-      context: ../../services/identity-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/identity-service/Dockerfile
     ports:
       - "7001:8080"
+    depends_on: [mysql, redis, rabbitmq, minio, authorization-service]
+
+  authorization-service:
+    build:
+      context: ../..
+      dockerfile: services/authorization-service/Dockerfile
+    ports:
+      - "7016:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   academic-service:
     build:
-      context: ../../services/academic-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/academic-service/Dockerfile
     ports:
       - "7002:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   attendance-service:
     build:
-      context: ../../services/attendance-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/attendance-service/Dockerfile
     ports:
       - "7003:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on: [mysql, redis, rabbitmq, minio, face-recognition-service]
+
+  face-recognition-service:
+    build:
+      context: ../..
+      dockerfile: services/face-recognition-service/Dockerfile
+    ports:
+      - "7100:8000"
 
   communication-service:
     build:
-      context: ../../services/communication-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/communication-service/Dockerfile
     ports:
       - "7004:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   exam-service:
     build:
-      context: ../../services/exam-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/exam-service/Dockerfile
     ports:
       - "7005:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   finance-service:
     build:
-      context: ../../services/finance-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/finance-service/Dockerfile
     ports:
       - "7006:8080"
     depends_on: [mysql, redis, rabbitmq]
 
+  ai-assistant-service:
+    build:
+      context: ../..
+      dockerfile: services/ai-assistant-service/Dockerfile
+    ports:
+      - "7007:8080"
+    depends_on: [mysql, redis, rabbitmq, academic-service, attendance-service, communication-service, exam-service]
+
   student-service:
     build:
-      context: ../../services/student-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/student-service/Dockerfile
     ports:
       - "7008:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   hostel-service:
     build:
-      context: ../../services/hostel-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/hostel-service/Dockerfile
     ports:
       - "7009:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   transport-service:
     build:
-      context: ../../services/transport-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/transport-service/Dockerfile
     ports:
       - "7010:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   placement-service:
     build:
-      context: ../../services/placement-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/placement-service/Dockerfile
     ports:
       - "7011:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   library-service:
     build:
-      context: ../../services/library-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/library-service/Dockerfile
     ports:
       - "7012:8080"
     depends_on: [mysql, redis, rabbitmq]
 
   lms-service:
     build:
-      context: ../../services/lms-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/lms-service/Dockerfile
     ports:
       - "7013:8080"
-    depends_on: [mysql, redis, rabbitmq]
+    depends_on: [mysql, redis, rabbitmq, minio]
 
   ai-insights-service:
     build:
-      context: ../../services/ai-insights-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/ai-insights-service/Dockerfile
     ports:
       - "7014:8080"
     depends_on: [mysql, redis, rabbitmq]
 
+  analytics-processor-service:
+    build:
+      context: ../..
+      dockerfile: services/analytics-processor-service/Dockerfile
+    ports:
+      - "7017:8080"
+    depends_on: [mysql, redis, rabbitmq, clickhouse]
+
   gateway-service:
     build:
-      context: ../../services/gateway-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: services/gateway-service/Dockerfile
     ports:
       - "7015:8080"
-    depends_on: [identity-service, academic-service]
-
-  ai-assistant-service:
-    build:
-      context: ../../services/ai-assistant-service
-      dockerfile: Dockerfile
-    ports:
-      - "7007:8080"
-    depends_on: [mysql, redis, rabbitmq, academic-service, attendance-service, communication-service, exam-service]
+    depends_on: [identity-service, academic-service, authorization-service, finance-service, attendance-service]

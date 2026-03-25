@@ -1,3 +1,7 @@
+using FluentAssertions;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using University360.BuildingBlocks;
 using Xunit;
 
 namespace Platform.Tests;
@@ -5,8 +9,48 @@ namespace Platform.Tests;
 public sealed class SmokeTests
 {
     [Fact]
-    public void Placeholder()
+    public async Task ObjectStorageSignedUrlContainsBucketAndExpiry()
     {
-        Assert.True(true);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Platform:ObjectStorage:Provider"] = "MinIO",
+                ["Platform:ObjectStorage:PublicBaseUrl"] = "http://localhost:9000",
+                ["Platform:ObjectStorage:SigningKey"] = "test-signing-key"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddObjectStorage(configuration);
+        var provider = services.BuildServiceProvider();
+        var storage = provider.GetRequiredService<IObjectStorageService>();
+
+        var signedUrl = await storage.CreateUploadUrlAsync("test-bucket", "tenant/file.pdf", "application/pdf", TimeSpan.FromMinutes(5));
+
+        signedUrl.Provider.Should().Be("MinIO");
+        signedUrl.Bucket.Should().Be("test-bucket");
+        signedUrl.Url.ToString().Should().Contain("test-bucket");
+        signedUrl.Url.ToString().Should().Contain("signature=");
+    }
+
+    [Fact]
+    public void ProductionSecretsValidationRequiresCriticalKeys()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var services = new ServiceCollection();
+        var environment = new FakeHostEnvironment { EnvironmentName = "Production" };
+
+        var action = () => services.AddProductionSecretsValidation(configuration, environment);
+
+        action.Should().Throw<InvalidOperationException>();
+    }
+
+    private sealed class FakeHostEnvironment : Microsoft.Extensions.Hosting.IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = string.Empty;
+        public string ApplicationName { get; set; } = "Platform.Tests";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.PhysicalFileProvider(AppContext.BaseDirectory);
     }
 }

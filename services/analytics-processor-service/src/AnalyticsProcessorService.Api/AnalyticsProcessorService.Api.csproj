@@ -2,8 +2,4 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\building-blocks\University360.BuildingBlocks\University360.BuildingBlocks.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Swashbuckle.AspNetCore" />
-    <PackageReference Include="Yarp.ReverseProxy" />
-  </ItemGroup>
 </Project>

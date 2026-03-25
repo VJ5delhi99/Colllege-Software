@@ -11,6 +11,12 @@ public static class MigrationsExtensions
     {
         using var scope = app.Services.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<TDbContext>();
+        if (dbContext.Database.IsRelational())
+        {
+            await dbContext.Database.MigrateAsync();
+            return;
+        }
+
         await dbContext.Database.EnsureCreatedAsync();
     }
 }
