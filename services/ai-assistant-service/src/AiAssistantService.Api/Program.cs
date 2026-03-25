@@ -10,6 +10,7 @@ builder.Services.AddAiAssistant(builder.Configuration);
 var app = builder.Build();
 app.UsePlatformDefaults();
 app.MapChatEndpoints();
+await app.EnsureDatabaseReadyAsync<AiAssistantDbContext>();
 
 app.MapGet("/", () => Results.Ok(new
 {

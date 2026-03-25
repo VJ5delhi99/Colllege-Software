@@ -10,15 +10,7 @@ const defaults = {
 
 function getEnv(name: keyof typeof defaults): string {
   const value = process.env[name];
-  if (value) {
-    return value;
-  }
-
-  if (process.env.NODE_ENV !== "production") {
-    return defaults[name];
-  }
-
-  throw new Error(`Missing required environment variable: ${name}`);
+  return value || defaults[name];
 }
 
 export const apiConfig = {
