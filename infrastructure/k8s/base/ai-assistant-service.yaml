@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-assistant-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-assistant-service
+  template:
+    metadata:
+      labels:
+        app: ai-assistant-service
+    spec:
+      containers:
+        - name: ai-assistant-service
+          image: university360/ai-assistant-service:latest
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-assistant-service
+spec:
+  selector:
+    app: ai-assistant-service
+  ports:
+    - port: 80
+      targetPort: 8080

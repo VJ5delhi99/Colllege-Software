@@ -1,0 +1,17 @@
+bin/
+obj/
+.DS_Store
+node_modules/
+.expo/
+.next/
+dist/
+coverage/
+*.log
+*.local
+.env
+.env.*
+!.env.example
+docker-data/
+*.user
+*.suo
+*.cache

@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Restore identity service
+        run: dotnet restore services/identity-service/src/IdentityService.Api/IdentityService.Api.csproj
+      - name: Restore academic service
+        run: dotnet restore services/academic-service/src/AcademicService.Api/AcademicService.Api.csproj
+      - name: Restore AI assistant service
+        run: dotnet restore services/ai-assistant-service/src/AiAssistantService.Api/AiAssistantService.Api.csproj
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install web admin deps
+        working-directory: web-admin
+        run: npm install
+      - name: Install mobile app deps
+        working-directory: mobile-app
+        run: npm install

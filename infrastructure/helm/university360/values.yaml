@@ -1,0 +1,10 @@
+services:
+  identity:
+    image: university360/identity-service
+    tag: latest
+  academic:
+    image: university360/academic-service
+    tag: latest
+  aiAssistant:
+    image: university360/ai-assistant-service
+    tag: latest

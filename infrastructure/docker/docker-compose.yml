@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: university360
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app123!
+    ports:
+      - "3306:3306"
+
+  redis:
+    image: redis:7.4
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  identity-service:
+    build:
+      context: ../../services/identity-service
+      dockerfile: Dockerfile
+    ports:
+      - "7001:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  academic-service:
+    build:
+      context: ../../services/academic-service
+      dockerfile: Dockerfile
+    ports:
+      - "7002:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  attendance-service:
+    build:
+      context: ../../services/attendance-service
+      dockerfile: Dockerfile
+    ports:
+      - "7003:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  communication-service:
+    build:
+      context: ../../services/communication-service
+      dockerfile: Dockerfile
+    ports:
+      - "7004:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  exam-service:
+    build:
+      context: ../../services/exam-service
+      dockerfile: Dockerfile
+    ports:
+      - "7005:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  finance-service:
+    build:
+      context: ../../services/finance-service
+      dockerfile: Dockerfile
+    ports:
+      - "7006:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  ai-assistant-service:
+    build:
+      context: ../../services/ai-assistant-service
+      dockerfile: Dockerfile
+    ports:
+      - "7007:8080"
+    depends_on: [mysql, redis, rabbitmq, academic-service, attendance-service, communication-service, exam-service]

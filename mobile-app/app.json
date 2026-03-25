@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "University360",
+    "slug": "university360",
+    "scheme": "university360",
+    "orientation": "portrait",
+    "plugins": ["expo-router", "react-native-reanimated/plugin"]
+  }
+}

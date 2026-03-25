@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: academic-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: academic-service
+  template:
+    metadata:
+      labels:
+        app: academic-service
+    spec:
+      containers:
+        - name: academic-service
+          image: university360/academic-service:latest
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: academic-service
+spec:
+  selector:
+    app: academic-service
+  ports:
+    - port: 80
+      targetPort: 8080
