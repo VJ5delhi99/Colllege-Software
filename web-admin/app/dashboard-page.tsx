@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getAdminSession } from "./auth-client";
+import { apiConfig } from "./api-config";
 
 type DashboardState = {
   enrollment: number;
@@ -26,19 +28,16 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const academicBase = process.env.NEXT_PUBLIC_ACADEMIC_API_URL ?? "http://localhost:7002";
-    const attendanceBase = process.env.NEXT_PUBLIC_ATTENDANCE_API_URL ?? "http://localhost:7003";
-    const communicationBase = process.env.NEXT_PUBLIC_COMMUNICATION_API_URL ?? "http://localhost:7004";
-    const financeBase = process.env.NEXT_PUBLIC_FINANCE_API_URL ?? "http://localhost:7006";
-    const identityBase = process.env.NEXT_PUBLIC_IDENTITY_API_URL ?? "http://localhost:7001";
-
-    Promise.all([
-      fetch(`${identityBase}/api/v1/users`).then((response) => response.json()),
-      fetch(`${attendanceBase}/api/v1/analytics/summary`).then((response) => response.json()),
-      fetch(`${financeBase}/api/v1/payments/summary`).then((response) => response.json()),
-      fetch(`${communicationBase}/api/v1/dashboard/summary`).then((response) => response.json()),
-      fetch(`${academicBase}/api/v1/dashboard/summary`).then((response) => response.json())
-    ])
+    getAdminSession()
+      .then((session) =>
+        Promise.all([
+          fetch(`${apiConfig.identity()}/api/v1/users`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.attendance()}/api/v1/analytics/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.communication()}/api/v1/dashboard/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.academic()}/api/v1/dashboard/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json())
+        ])
+      )
       .then(([users, attendance, finance, communication, academic]) => {
         setState({
           enrollment: Array.isArray(users) ? users.length : 0,
@@ -51,7 +50,7 @@ export default function DashboardPage() {
         setError(null);
       })
       .catch(() => {
-        setError("Dashboard services are unavailable. Configure API URLs and run the backend services.");
+        setError("Dashboard services are unavailable. Configure the required environment variables and identity token flow.");
       })
       .finally(() => setLoading(false));
   }, []);

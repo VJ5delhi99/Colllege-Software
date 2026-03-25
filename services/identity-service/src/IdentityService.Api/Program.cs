@@ -1,9 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddPlatformDefaults<IdentityDbContext>();
+builder.AddPlatformDefaults<IdentityDbContext>();
 
 var app = builder.Build();
 app.UsePlatformDefaults();
@@ -30,13 +34,48 @@ app.MapPost("/api/v1/users", async ([FromBody] RegisterUserRequest request, Iden
     return Results.Created($"/api/v1/users/{user.Id}", user);
 }).RequireRateLimiting("api");
 
-app.MapGet("/api/v1/users", async (IdentityDbContext dbContext) =>
-    await dbContext.Users.OrderBy(x => x.FullName).ToListAsync());
+app.MapGet("/api/v1/users", async (HttpContext httpContext, IdentityDbContext dbContext) =>
+    await dbContext.Users.Where(x => x.TenantId == httpContext.GetTenantId()).OrderBy(x => x.FullName).ToListAsync());
 
-app.MapGet("/api/v1/users/{id:guid}", async (Guid id, IdentityDbContext dbContext) =>
+app.MapGet("/api/v1/users/{id:guid}", async (Guid id, HttpContext httpContext, IdentityDbContext dbContext) =>
 {
-    var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Id == id);
+    var user = await dbContext.Users.FirstOrDefaultAsync(x => x.TenantId == httpContext.GetTenantId() && x.Id == id);
     return user is null ? Results.NotFound() : Results.Ok(user);
+});
+
+app.MapPost("/api/v1/auth/token", async ([FromBody] TokenRequest request, IdentityDbContext dbContext, IConfiguration configuration) =>
+{
+    var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == request.Email && x.TenantId == request.TenantId);
+    if (user is null)
+    {
+        return Results.NotFound(new { message = "User not found" });
+    }
+
+    var key = configuration["Platform:Jwt:SigningKey"] ?? "development-signing-key-please-change";
+    var claims = new[]
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new Claim(ClaimTypes.Email, user.Email),
+        new Claim(ClaimTypes.Role, user.Role),
+        new Claim("role", user.Role),
+        new Claim("tenant_id", user.TenantId)
+    };
+
+    var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
+    var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
+    var token = new JwtSecurityToken(
+        issuer: configuration["Platform:Jwt:Authority"] ?? "https://identity.university360.local",
+        audience: configuration["Platform:Jwt:Audience"] ?? "university360-api",
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(8),
+        signingCredentials: credentials);
+
+    return Results.Ok(new
+    {
+        accessToken = new JwtSecurityTokenHandler().WriteToken(token),
+        user = new { user.Id, user.FullName, user.Email, user.Role, user.TenantId }
+    });
 });
 
 app.MapGet("/api/v1/roles", () => Results.Ok(new[]
@@ -68,6 +107,7 @@ static async Task SeedIdentityDataAsync(WebApplication app)
 }
 
 public sealed record RegisterUserRequest(string TenantId, string Email, string FullName, string Role, bool PasswordlessEnabled, bool MfaEnabled);
+public sealed record TokenRequest(string Email, string TenantId = "default");
 
 public sealed class PlatformUser
 {
@@ -78,6 +118,12 @@ public sealed class PlatformUser
     public string Role { get; set; } = string.Empty;
     public bool PasswordlessEnabled { get; set; }
     public bool MfaEnabled { get; set; }
+}
+
+static class TenantExtensions
+{
+    public static string GetTenantId(this HttpContext httpContext) =>
+        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }
 
 public sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : DbContext(options)

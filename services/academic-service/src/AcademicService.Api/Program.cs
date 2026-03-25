@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddPlatformDefaults<AcademicDbContext>();
+builder.AddPlatformDefaults<AcademicDbContext>();
 
 var app = builder.Build();
 app.UsePlatformDefaults();
@@ -17,6 +17,7 @@ app.MapPost("/api/v1/courses", async ([FromBody] CreateCourseRequest request, Ac
     var course = new Course
     {
         Id = Guid.NewGuid(),
+        TenantId = request.TenantId,
         CourseCode = request.CourseCode,
         Title = request.Title,
         Credits = request.Credits,
@@ -32,13 +33,17 @@ app.MapPost("/api/v1/courses", async ([FromBody] CreateCourseRequest request, Ac
     return Results.Created($"/api/v1/courses/{course.Id}", course);
 }).RequireRateLimiting("api");
 
-app.MapGet("/api/v1/courses", async (AcademicDbContext dbContext) =>
-    await dbContext.Courses.OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).ToListAsync());
-
-app.MapGet("/api/v1/dashboard/summary", async (AcademicDbContext dbContext) =>
+app.MapGet("/api/v1/courses", async (HttpContext httpContext, AcademicDbContext dbContext) =>
 {
-    var nextCourse = await dbContext.Courses.OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).FirstOrDefaultAsync();
-    var totalCourses = await dbContext.Courses.CountAsync();
+    var tenantId = httpContext.GetTenantId();
+    return await dbContext.Courses.Where(x => x.TenantId == tenantId).OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).ToListAsync();
+});
+
+app.MapGet("/api/v1/dashboard/summary", async (HttpContext httpContext, AcademicDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetTenantId();
+    var nextCourse = await dbContext.Courses.Where(x => x.TenantId == tenantId).OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).FirstOrDefaultAsync();
+    var totalCourses = await dbContext.Courses.CountAsync(x => x.TenantId == tenantId);
 
     return Results.Ok(new
     {
@@ -65,6 +70,7 @@ static async Task SeedAcademicDataAsync(WebApplication app)
         new Course
         {
             Id = Guid.NewGuid(),
+            TenantId = "default",
             CourseCode = "CSE401",
             Title = "Distributed Systems",
             Credits = 4,
@@ -77,6 +83,7 @@ static async Task SeedAcademicDataAsync(WebApplication app)
         new Course
         {
             Id = Guid.NewGuid(),
+            TenantId = "default",
             CourseCode = "PHY201",
             Title = "Physics",
             Credits = 3,
@@ -89,6 +96,7 @@ static async Task SeedAcademicDataAsync(WebApplication app)
         new Course
         {
             Id = Guid.NewGuid(),
+            TenantId = "default",
             CourseCode = "MTH301",
             Title = "Advanced Mathematics",
             Credits = 3,
@@ -104,6 +112,7 @@ static async Task SeedAcademicDataAsync(WebApplication app)
 }
 
 public sealed record CreateCourseRequest(
+    string TenantId,
     string CourseCode,
     string Title,
     int Credits,
@@ -116,6 +125,7 @@ public sealed record CreateCourseRequest(
 public sealed class Course
 {
     public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
     public string CourseCode { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public int Credits { get; set; }
@@ -124,6 +134,12 @@ public sealed class Course
     public string DayOfWeek { get; set; } = string.Empty;
     public string StartTime { get; set; } = string.Empty;
     public string Room { get; set; } = string.Empty;
+}
+
+static class TenantExtensions
+{
+    public static string GetTenantId(this HttpContext httpContext) =>
+        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }
 
 public sealed class AcademicDbContext(DbContextOptions<AcademicDbContext> options) : DbContext(options)

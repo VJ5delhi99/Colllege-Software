@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddPlatformDefaults<CommunicationDbContext>();
+builder.AddPlatformDefaults<CommunicationDbContext>();
 
 var app = builder.Build();
 app.UsePlatformDefaults();
@@ -17,6 +17,7 @@ app.MapPost("/api/v1/announcements", async ([FromBody] CreateAnnouncementRequest
     var announcement = new Announcement
     {
         Id = Guid.NewGuid(),
+        TenantId = request.TenantId,
         Title = request.Title,
         Body = request.Body,
         Audience = request.Audience,
@@ -28,13 +29,14 @@ app.MapPost("/api/v1/announcements", async ([FromBody] CreateAnnouncementRequest
     return Results.Created($"/api/v1/announcements/{announcement.Id}", announcement);
 }).RequireRateLimiting("api");
 
-app.MapGet("/api/v1/announcements", async (CommunicationDbContext dbContext) =>
-    await dbContext.Announcements.OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
+app.MapGet("/api/v1/announcements", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
+    await dbContext.Announcements.Where(x => x.TenantId == httpContext.GetTenantId()).OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
 
-app.MapGet("/api/v1/dashboard/summary", async (CommunicationDbContext dbContext) =>
+app.MapGet("/api/v1/dashboard/summary", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
 {
-    var total = await dbContext.Announcements.CountAsync();
-    var latest = await dbContext.Announcements.OrderByDescending(x => x.PublishedAtUtc).FirstOrDefaultAsync();
+    var tenantId = httpContext.GetTenantId();
+    var total = await dbContext.Announcements.CountAsync(x => x.TenantId == tenantId);
+    var latest = await dbContext.Announcements.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.PublishedAtUtc).FirstOrDefaultAsync();
     return Results.Ok(new { total, latest });
 });
 
@@ -55,6 +57,7 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
     [
         new Announcement
         {
+            TenantId = "default",
             Id = Guid.NewGuid(),
             Title = "Building a research-first campus culture in 2026",
             Body = "Leadership notes, institutional wins, and priorities for the current semester.",
@@ -63,6 +66,7 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
         },
         new Announcement
         {
+            TenantId = "default",
             Id = Guid.NewGuid(),
             Title = "Semester exams begin on April 12",
             Body = "Review the updated exam timetable and hall policies before reporting.",
@@ -71,6 +75,7 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
         },
         new Announcement
         {
+            TenantId = "default",
             Id = Guid.NewGuid(),
             Title = "Faculty meeting on curriculum modernization",
             Body = "Department heads and professors are requested to join the review session.",
@@ -82,15 +87,22 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
     await dbContext.SaveChangesAsync();
 }
 
-public sealed record CreateAnnouncementRequest(string Title, string Body, string Audience);
+public sealed record CreateAnnouncementRequest(string TenantId, string Title, string Body, string Audience);
 
 public sealed class Announcement
 {
     public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
     public string Title { get; set; } = string.Empty;
     public string Body { get; set; } = string.Empty;
     public string Audience { get; set; } = "All";
     public DateTimeOffset PublishedAtUtc { get; set; }
+}
+
+static class TenantExtensions
+{
+    public static string GetTenantId(this HttpContext httpContext) =>
+        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }
 
 public sealed class CommunicationDbContext(DbContextOptions<CommunicationDbContext> options) : DbContext(options)

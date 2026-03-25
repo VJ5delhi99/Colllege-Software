@@ -1,6 +1,6 @@
 # University360 ERP
 
-University360 is a cloud-native university ERP monorepo scaffold for a distributed, AI-enabled campus platform. The repository now includes seeded backend services, dynamic student and admin dashboards, an AI assistant service, and local infrastructure assets for running the stack in development.
+University360 is a cloud-native university ERP monorepo scaffold for a distributed, AI-enabled campus platform. The repository now includes seeded backend services, dynamic student and admin dashboards, an AI assistant service, a gateway/BFF layer, additional ERP module services, and local infrastructure assets for running the stack in development.
 
 ## Repository Layout
 
@@ -13,10 +13,19 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
   /communication-service
   /exam-service
   /finance-service
+  /student-service
+  /hostel-service
+  /transport-service
+  /placement-service
+  /library-service
+  /lms-service
+  /ai-insights-service
+  /gateway-service
   /ai-assistant-service
 /mobile-app
 /web-admin
 /infrastructure
+/tests
 /.github
 ```
 
@@ -24,71 +33,85 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 
 ### Platform
 
-- .NET 9 microservice baseline with Minimal APIs, EF Core, MySQL, Redis/HybridCache hooks, MassTransit, RabbitMQ, OpenTelemetry, Serilog, rate limiting, and CORS defaults.
-- Shared building blocks for authentication hooks, tenant settings, telemetry, caching, and infrastructure conventions.
+- .NET 9 microservice baseline with Minimal APIs, EF Core, MySQL, Redis/HybridCache hooks, MassTransit, RabbitMQ, OpenTelemetry, Serilog, rate limiting, CORS defaults, and basic migrations helpers.
+- Shared building blocks for authentication hooks, tenant settings, telemetry, caching, infrastructure conventions, and role-based endpoint filters.
 - Docker Compose stack for MySQL, Redis, RabbitMQ, and the implemented API services.
+- Solution and CI entries for backend services plus test project scaffolding.
 
-### Backend Services
+### Identity And Security
 
-- `identity-service`
-  - seeded users for student, professor, and principal roles
-  - list and detail endpoints for users
-  - role catalog endpoint
+- seeded users for student, professor, and principal roles
+- role catalog endpoint
+- user list/detail endpoints
+- JWT token issuance endpoint: `POST /api/v1/auth/token`
+- development signing-key based JWT validation support
+- endpoint-level RBAC filter support through `RequireRoles(...)`
+- AI assistant endpoints require authenticated JWT claims; demo-role headers are no longer accepted
+
+### Core ERP Services
+
 - `academic-service`
   - seeded course schedule with room, day, and start time
-  - course creation and course listing
+  - course creation and listing
   - dashboard summary endpoint with next class details
 - `attendance-service`
   - seeded attendance records
-  - attendance recording endpoint
-  - global summary endpoint
-  - per-student summary endpoint used by the mobile dashboard and AI assistant
+  - per-student attendance summary
+  - QR session lifecycle endpoints
+  - face-recognition verification boundary endpoint
 - `communication-service`
   - seeded announcements and principal blog-style content
   - announcement creation and listing
-  - dashboard summary endpoint with latest announcement
+  - dashboard summary endpoint
 - `exam-service`
   - seeded published results
-  - result publishing and student result listing
-  - result summary endpoint with published count and average GPA
+  - result publishing and summaries
 - `finance-service`
   - seeded payments
-  - payment recording and listing
-  - payment summary endpoint with total collections
-- `ai-assistant-service`
-  - `POST /api/chat`
-  - `POST /api/chat/stream`
-  - intent routing for attendance, results, schedule, announcements, analytics, posting announcements, and knowledge queries
-  - typed downstream clients to academic, attendance, results, and communication services
-  - Semantic Kernel integration boundary for OpenAI/Azure OpenAI
-  - seeded knowledge documents for handbook and exam-policy RAG responses
-  - role-aware access checks
-  - development-mode demo access via `X-Demo-Role` header when no JWT is present
+  - payment summaries
+  - mock payment-intent endpoint for provider integration boundaries
+- `student-service`
+  - student profile endpoints
+- `hostel-service`
+  - hostel rooms, allocations, visitor logs
+- `transport-service`
+  - routes and GPS tracking boundary
+- `placement-service`
+  - company drives, interviews, placement analytics
+- `library-service`
+  - books and borrow records
+- `lms-service`
+  - course materials
+  - assignments
+  - file upload endpoint for assignment publishing
+- `ai-insights-service`
+  - seeded student performance/risk insights
+- `gateway-service`
+  - BFF aggregation endpoint for admin overview
 
-### Mobile App
+### AI Assistant
 
-- student dashboard with live data fetches for:
-  - attendance
-  - latest GPA
-  - announcement count
-  - next scheduled class
-- principal blog card backed by communication service data
-- AI chat screen with:
-  - suggested prompts
-  - live `POST /api/chat` requests
-  - loading state
-  - error messaging for missing backend/auth configuration
+- `POST /api/chat`
+- `POST /api/chat/stream`
+- intent routing for attendance, results, schedule, announcements, analytics, posting announcements, and knowledge queries
+- typed downstream clients to academic, attendance, results, and communication services
+- Semantic Kernel integration boundary for OpenAI/Azure OpenAI
+- seeded knowledge documents for handbook and exam-policy RAG responses
+- role-aware access checks
+- JWT-authenticated caller context passed into assistant routing and authorization checks
 
-### Web Admin
+### Frontend
 
-- admin dashboard with live data fetches for:
-  - enrollment count
-  - attendance percentage
-  - fee collection total
-  - announcement count
-  - latest announcement
-  - next scheduled course
-- floating chatbot widget with live `POST /api/chat` integration
+- mobile student dashboard with live data fetches for attendance, GPA, announcements, and next class
+- mobile AI chat screen with suggested prompts, live requests, and error states
+- web admin dashboard with live data fetches for enrollment, attendance, fee totals, announcements, and next class
+- web floating chatbot widget with live AI assistant requests
+- frontend apps require explicit API base URLs through environment variables instead of hardcoded localhost fallbacks
+
+### Tests
+
+- test project scaffold in `/tests/Platform.Tests`
+- initial smoke test placeholder for CI/test pipeline setup
 
 ## QA Review Summary
 
@@ -100,59 +123,52 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 - Added missing summary endpoints needed by UI surfaces.
 - Fixed AI assistant integration so attendance queries use per-student data instead of the global attendance aggregate.
 - Added development CORS support so browser/mobile clients can call APIs in local setups.
-- Added finance service to Docker Compose because the web dashboard depends on payment summary data.
-- Tightened AI assistant demo access so unauthenticated header-based role simulation is allowed only in development.
+- Added finance service and the new ERP services to local infrastructure coverage.
+- Removed unauthenticated AI assistant demo-role access; assistant requests now require JWT-authenticated claims.
+- Added auth token issuance, RBAC hooks, QR lifecycle endpoints, file upload boundary, payment-intent boundary, gateway/BFF service, and test scaffolding.
 - Expanded `.gitignore` for env files, logs, caches, and IDE noise.
+- Added explicit frontend environment-variable configuration so web and mobile clients do not depend on implicit localhost defaults.
+- Added tenant-aware filtering across the core dashboard and assistant-backed services using `X-Tenant-Id`.
+- Completed solution-level restore, build, and test verification in this workspace.
 
-### Current Functional Coverage
+## Current Functional Coverage
 
-- Implemented pages:
-  - mobile dashboard
-  - mobile AI chat
-  - web admin dashboard
-  - web AI chat widget
-- Implemented working buttons:
-  - mobile `Open AI Assistant`
-  - mobile suggested chat prompts
-  - mobile `Send`
-  - web `Ask AI`
-  - web widget `Close`
-  - web suggested chat prompts
-  - web widget `Send`
+### Implemented Pages
 
-### Remaining Missing Features
+- mobile dashboard
+- mobile AI chat
+- web admin dashboard
+- web AI chat widget
 
-The repository is still not a complete University ERP. The following major features are missing or partial:
+### Implemented Working Buttons
 
-- no student-management microservice
-- no hostel-management microservice
-- no transport-management microservice
-- no placement-and-career microservice
-- no library-management microservice
-- no LMS microservice
-- no AI insights service with ClickHouse analytics
-- no real authentication flow, token issuance, SSO, or MFA execution path
-- no real RBAC policy engine across all services
-- no payment gateway integrations
-- no QR session lifecycle UI
-- no face-recognition pipeline
-- no file upload flows for assignments or course materials
-- no production-grade API gateway/BFF
-- no automated backend/frontend tests
-- incomplete Kubernetes and Helm coverage for all services
-- no migrations strategy beyond `EnsureCreated`
-- no production-safe secrets management
+- mobile `Open AI Assistant`
+- mobile suggested chat prompts
+- mobile `Send`
+- web `Ask AI`
+- web widget `Close`
+- web suggested chat prompts
+- web widget `Send`
 
-### Known Gaps And Risks
+## Remaining Missing Or Partial Features
 
-- The AI assistant is functional in development mode without JWT by using `X-Demo-Role`; production should require authenticated claims.
-- The frontend apps rely on environment-specific API base URLs. `localhost` defaults are only suitable for local browser development and may not work on physical mobile devices.
-- Service data is seeded for demo purposes; it is dynamic from the API/database perspective, but it is not tenant-specific business data yet.
-- Build verification in this environment is limited by blocked package restore access to NuGet.
+The repository covers more of the ERP now, but several areas are still partial rather than production-complete:
+
+- no full multi-tenant auth server with SSO, passwordless, and MFA execution flows
+- no production-grade centralized RBAC/permission management UI
+- no real external payment gateway webhooks or reconciliation flows
+- no real face-recognition model/pipeline, only verification boundary scaffolding
+- no persistent object storage integration for uploaded files
+- no ClickHouse-backed analytics store yet, only AI insights service scaffolding
+- no production-grade API gateway policies, throttling strategy, or route governance
+- no end-to-end automated UI tests
+- Kubernetes and Helm coverage is still incomplete for the newer services
+- database strategy still relies on `EnsureCreated`; real migrations/versioning are not implemented
+- production secrets/config management is still missing
 
 ## Local Development Notes
 
-### Backend API ports
+### Backend API Ports
 
 - `identity-service`: `7001`
 - `academic-service`: `7002`
@@ -161,10 +177,16 @@ The repository is still not a complete University ERP. The following major featu
 - `exam-service`: `7005`
 - `finance-service`: `7006`
 - `ai-assistant-service`: `7007`
+- `student-service`: `7008`
+- `hostel-service`: `7009`
+- `transport-service`: `7010`
+- `placement-service`: `7011`
+- `library-service`: `7012`
+- `lms-service`: `7013`
+- `ai-insights-service`: `7014`
+- `gateway-service`: `7015`
 
-### Frontend environment variables
-
-Recommended variables for local development:
+### Frontend Environment Variables
 
 - Web:
   - `NEXT_PUBLIC_IDENTITY_API_URL`
@@ -174,12 +196,24 @@ Recommended variables for local development:
   - `NEXT_PUBLIC_FINANCE_API_URL`
   - `NEXT_PUBLIC_AI_ASSISTANT_URL`
 - Mobile:
+  - `EXPO_PUBLIC_IDENTITY_API_URL`
   - `EXPO_PUBLIC_ACADEMIC_API_URL`
   - `EXPO_PUBLIC_ATTENDANCE_API_URL`
   - `EXPO_PUBLIC_COMMUNICATION_API_URL`
   - `EXPO_PUBLIC_EXAM_API_URL`
   - `EXPO_PUBLIC_AI_ASSISTANT_URL`
 
-## Tooling Note
+Use [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example) as the template. Web examples use `localhost`; mobile examples intentionally use `YOUR_MACHINE_IP` because Expo apps running on physical devices cannot call the host machine through `localhost`.
 
-The repository targets `net9.0` so it aligns with the SDK available in this workspace. Full build validation still requires NuGet package restore access.
+### Authentication And Tenant Context
+
+- Frontend clients obtain a JWT from `identity-service` through `POST /api/v1/auth/token` before calling protected APIs.
+- Assistant requests must include `Authorization: Bearer <token>`.
+- Core dashboard and assistant-backed service queries are tenant-filtered via `X-Tenant-Id`.
+- Seed data is still demo-oriented, but it is now partitioned by tenant for the implemented core flows.
+
+## Verification
+
+- `dotnet build Colllege-Software.sln -v minimal`: passed on March 25, 2026
+- `dotnet test tests\Platform.Tests\Platform.Tests.csproj -v minimal --no-build`: passed on March 25, 2026
+- The repository targets `net9.0` and builds successfully with the SDK available in this workspace.

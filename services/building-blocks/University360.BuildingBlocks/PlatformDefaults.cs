@@ -1,14 +1,21 @@
 using System.Reflection;
 using MassTransit;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
 using StackExchange.Redis;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 namespace University360.BuildingBlocks;
 
@@ -22,7 +29,6 @@ public static class PlatformDefaults
         builder.Services.Configure<PlatformOptions>(builder.Configuration.GetSection(PlatformOptions.SectionName));
         builder.Services.AddProblemDetails();
         builder.Services.AddEndpointsApiExplorer();
-        builder.Services.AddOpenApi();
         builder.Services.AddCors(options =>
         {
             options.AddPolicy("platform", policy =>
@@ -44,6 +50,17 @@ public static class PlatformDefaults
                 options.Authority = builder.Configuration["Platform:Jwt:Authority"];
                 options.Audience = builder.Configuration["Platform:Jwt:Audience"];
                 options.RequireHttpsMetadata = false;
+                var signingKey = builder.Configuration["Platform:Jwt:SigningKey"];
+                if (!string.IsNullOrWhiteSpace(signingKey))
+                {
+                    options.TokenValidationParameters = new TokenValidationParameters
+                    {
+                        ValidateIssuerSigningKey = true,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
+                        ValidateIssuer = false,
+                        ValidateAudience = false
+                    };
+                }
             });
 
         builder.Services.AddRateLimiter(options =>

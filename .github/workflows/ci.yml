@@ -19,6 +19,12 @@ jobs:
         run: dotnet restore services/academic-service/src/AcademicService.Api/AcademicService.Api.csproj
       - name: Restore AI assistant service
         run: dotnet restore services/ai-assistant-service/src/AiAssistantService.Api/AiAssistantService.Api.csproj
+      - name: Restore student service
+        run: dotnet restore services/student-service/src/StudentService.Api/StudentService.Api.csproj
+      - name: Restore LMS service
+        run: dotnet restore services/lms-service/src/LmsService.Api/LmsService.Api.csproj
+      - name: Restore tests
+        run: dotnet restore tests/Platform.Tests/Platform.Tests.csproj
 
   frontend:
     runs-on: ubuntu-latest

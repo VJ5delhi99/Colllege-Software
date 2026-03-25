@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddPlatformDefaults<ExamDbContext>();
+builder.AddPlatformDefaults<ExamDbContext>();
 
 var app = builder.Build();
 app.UsePlatformDefaults();
@@ -17,6 +17,7 @@ app.MapPost("/api/v1/results", async ([FromBody] PublishResultRequest request, E
     var result = new StudentResult
     {
         Id = Guid.NewGuid(),
+        TenantId = request.TenantId,
         StudentId = request.StudentId,
         SemesterCode = request.SemesterCode,
         Gpa = request.Gpa,
@@ -29,15 +30,16 @@ app.MapPost("/api/v1/results", async ([FromBody] PublishResultRequest request, E
     return Results.Created($"/api/v1/results/{result.Id}", result);
 }).RequireRateLimiting("api");
 
-app.MapGet("/api/v1/results", async (ExamDbContext dbContext) =>
-    await dbContext.StudentResults.OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
+app.MapGet("/api/v1/results", async (HttpContext httpContext, ExamDbContext dbContext) =>
+    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetTenantId()).OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
 
-app.MapGet("/api/v1/results/{studentId:guid}", async (Guid studentId, ExamDbContext dbContext) =>
-    await dbContext.StudentResults.Where(x => x.StudentId == studentId).OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
+app.MapGet("/api/v1/results/{studentId:guid}", async (Guid studentId, HttpContext httpContext, ExamDbContext dbContext) =>
+    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetTenantId() && x.StudentId == studentId).OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
 
-app.MapGet("/api/v1/results/summary", async (ExamDbContext dbContext) =>
+app.MapGet("/api/v1/results/summary", async (HttpContext httpContext, ExamDbContext dbContext) =>
 {
-    var published = await dbContext.StudentResults.Where(x => x.Published).ToListAsync();
+    var tenantId = httpContext.GetTenantId();
+    var published = await dbContext.StudentResults.Where(x => x.TenantId == tenantId && x.Published).ToListAsync();
     return Results.Ok(new
     {
         totalPublished = published.Count,
@@ -63,6 +65,7 @@ static async Task SeedExamDataAsync(WebApplication app)
     [
         new StudentResult
         {
+            TenantId = "default",
             Id = Guid.NewGuid(),
             StudentId = KnownUsers.StudentId,
             SemesterCode = "2025-FALL",
@@ -72,6 +75,7 @@ static async Task SeedExamDataAsync(WebApplication app)
         },
         new StudentResult
         {
+            TenantId = "default",
             Id = Guid.NewGuid(),
             StudentId = KnownUsers.StudentId,
             SemesterCode = "2026-SPRING",
@@ -84,16 +88,23 @@ static async Task SeedExamDataAsync(WebApplication app)
     await dbContext.SaveChangesAsync();
 }
 
-public sealed record PublishResultRequest(Guid StudentId, string SemesterCode, decimal Gpa, bool Published);
+public sealed record PublishResultRequest(string TenantId, Guid StudentId, string SemesterCode, decimal Gpa, bool Published);
 
 public sealed class StudentResult
 {
     public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
     public Guid StudentId { get; set; }
     public string SemesterCode { get; set; } = string.Empty;
     public decimal Gpa { get; set; }
     public bool Published { get; set; }
     public DateTimeOffset? PublishedAtUtc { get; set; }
+}
+
+static class TenantExtensions
+{
+    public static string GetTenantId(this HttpContext httpContext) =>
+        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }
 
 public sealed class ExamDbContext(DbContextOptions<ExamDbContext> options) : DbContext(options)

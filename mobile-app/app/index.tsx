@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { MotiView } from "moti";
 import { Bell, CalendarDays, GraduationCap, ScanLine } from "lucide-react-native";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { getStudentSession } from "./auth-client";
+import { apiConfig } from "./api-config";
 
 type DashboardState = {
   attendance: string;
@@ -28,23 +30,19 @@ const initialState: DashboardState = {
   error: null
 };
 
-const studentId = "00000000-0000-0000-0000-000000000123";
-
 export default function HomeScreen() {
   const [state, setState] = useState(initialState);
 
   useEffect(() => {
-    const academicBase = process.env.EXPO_PUBLIC_ACADEMIC_API_URL ?? "http://localhost:7002";
-    const attendanceBase = process.env.EXPO_PUBLIC_ATTENDANCE_API_URL ?? "http://localhost:7003";
-    const communicationBase = process.env.EXPO_PUBLIC_COMMUNICATION_API_URL ?? "http://localhost:7004";
-    const resultsBase = process.env.EXPO_PUBLIC_EXAM_API_URL ?? "http://localhost:7005";
-
-    Promise.all([
-      fetch(`${attendanceBase}/api/v1/students/${studentId}/summary`).then((response) => response.json()),
-      fetch(`${resultsBase}/api/v1/results/${studentId}`).then((response) => response.json()),
-      fetch(`${communicationBase}/api/v1/dashboard/summary`).then((response) => response.json()),
-      fetch(`${academicBase}/api/v1/dashboard/summary`).then((response) => response.json())
-    ])
+    getStudentSession()
+      .then((session) =>
+        Promise.all([
+          fetch(`${apiConfig.attendance()}/api/v1/students/${session.user.id}/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.exam()}/api/v1/results/${session.user.id}`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.communication()}/api/v1/dashboard/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
+          fetch(`${apiConfig.academic()}/api/v1/dashboard/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json())
+        ])
+      )
       .then(([attendance, results, communication, academic]) => {
         const latestResult = Array.isArray(results) && results.length > 0 ? results[0] : null;
         setState({
@@ -64,7 +62,7 @@ export default function HomeScreen() {
       .catch(() => {
         setState((current) => ({
           ...current,
-          error: "Dashboard services are unavailable. Configure Expo API base URLs and start the backend services."
+          error: "Dashboard services are unavailable. Configure the required Expo environment variables and identity token flow."
         }));
       });
   }, []);

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using University360.BuildingBlocks;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddPlatformDefaults<AiAssistantDbContext>();
+builder.AddPlatformDefaults<AiAssistantDbContext>();
 builder.Services.AddAiAssistant(builder.Configuration);
 
 var app = builder.Build();

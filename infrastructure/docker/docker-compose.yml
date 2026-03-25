@@ -70,6 +70,70 @@ services:
       - "7006:8080"
     depends_on: [mysql, redis, rabbitmq]
 
+  student-service:
+    build:
+      context: ../../services/student-service
+      dockerfile: Dockerfile
+    ports:
+      - "7008:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  hostel-service:
+    build:
+      context: ../../services/hostel-service
+      dockerfile: Dockerfile
+    ports:
+      - "7009:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  transport-service:
+    build:
+      context: ../../services/transport-service
+      dockerfile: Dockerfile
+    ports:
+      - "7010:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  placement-service:
+    build:
+      context: ../../services/placement-service
+      dockerfile: Dockerfile
+    ports:
+      - "7011:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  library-service:
+    build:
+      context: ../../services/library-service
+      dockerfile: Dockerfile
+    ports:
+      - "7012:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  lms-service:
+    build:
+      context: ../../services/lms-service
+      dockerfile: Dockerfile
+    ports:
+      - "7013:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  ai-insights-service:
+    build:
+      context: ../../services/ai-insights-service
+      dockerfile: Dockerfile
+    ports:
+      - "7014:8080"
+    depends_on: [mysql, redis, rabbitmq]
+
+  gateway-service:
+    build:
+      context: ../../services/gateway-service
+      dockerfile: Dockerfile
+    ports:
+      - "7015:8080"
+    depends_on: [identity-service, academic-service]
+
   ai-assistant-service:
     build:
       context: ../../services/ai-assistant-service

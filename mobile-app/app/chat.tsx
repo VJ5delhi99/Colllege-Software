@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { MotiView } from "moti";
 import { SafeAreaView, ScrollView, Text, TextInput, Pressable, View } from "react-native";
+import { getStudentSession } from "./auth-client";
+import { apiConfig } from "./api-config";
 
 const suggestedPrompts = [
   "Check my attendance",
@@ -17,7 +19,7 @@ export default function ChatScreen() {
   const [isTyping, setIsTyping] = useState(false);
 
   const nextId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const endpoint = process.env.EXPO_PUBLIC_AI_ASSISTANT_URL ?? "http://localhost:7007/api/chat";
+  const endpoint = apiConfig.assistant();
 
   const sendMessage = async (message: string) => {
     if (!message.trim()) {
@@ -29,22 +31,24 @@ export default function ChatScreen() {
     setIsTyping(true);
 
     try {
+      const session = await getStudentSession();
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Demo-Role": "Student"
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
         },
         body: JSON.stringify({
           message,
-          userId: "00000000-0000-0000-0000-000000000123"
+          userId: session.user.id
         })
       });
 
       const payload = await response.json().catch(() => null);
       const text = response.ok && payload?.reply
         ? payload.reply
-        : "Assistant service is unreachable or rejected the request. Add auth headers and environment-specific API base URLs in the mobile shell.";
+        : "Assistant service is unreachable or rejected the request. Verify the configured API URLs and token flow.";
 
       setMessages((current) => [...current, { id: nextId(), role: "assistant", text }]);
     } catch {
@@ -53,7 +57,7 @@ export default function ChatScreen() {
         {
           id: nextId(),
           role: "assistant",
-          text: "Assistant service is unreachable or rejected the request. Add auth headers and environment-specific API base URLs in the mobile shell."
+          text: "Assistant service is unreachable or rejected the request. Verify the configured API URLs and token flow."
         }
       ]);
     } finally {

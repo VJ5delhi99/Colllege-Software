@@ -17,13 +17,18 @@
 - `exam-service`: assessment publication and GPA records
 - `finance-service`: payment recording, fee ledgers, provider integration boundary
 - `ai-assistant-service`: role-aware natural-language assistant with Semantic Kernel orchestration, typed service integrations, and RAG hooks
+- `student-service`: student profiles, department mapping, academic status
+- `hostel-service`: rooms, allocations, visitor logs
+- `transport-service`: routes and GPS tracking boundary
+- `placement-service`: drives, interviews, placement analytics
+- `library-service`: books and borrowing records
+- `lms-service`: materials, assignments, upload boundary
+- `ai-insights-service`: student risk and performance insights
+- `gateway-service`: admin BFF aggregation layer
 
 ## Next Services To Add
 
-- student management
-- library management
-- hostel management
-- transport management
-- placement and career
-- learning management system
-- AI insights service backed by ClickHouse
+- production auth server and SSO
+- payment gateway workers and webhook consumers
+- richer analytics store backed by ClickHouse
+- production-grade API gateway policies

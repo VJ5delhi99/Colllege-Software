@@ -7,6 +7,7 @@ public static class ChatEndpoints
     public static void MapChatEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/chat")
+            .RequireAuthorization()
             .RequireRateLimiting("api")
             .WithTags("AI Assistant");
 
@@ -67,19 +68,14 @@ public static class ChatEndpoints
     private static AssistantUserContext? BuildAssistantContext(this HttpContext httpContext, string requestedUserId)
     {
         var principal = httpContext.User;
-        var environment = httpContext.RequestServices.GetRequiredService<IHostEnvironment>();
         var isAuthenticated = principal.Identity?.IsAuthenticated == true;
-        if (!isAuthenticated && !environment.IsDevelopment())
+        if (!isAuthenticated)
         {
             return null;
         }
 
-        var role = isAuthenticated
-            ? principal.FindFirst("role")?.Value ?? principal.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student"
-            : httpContext.Request.Headers["X-Demo-Role"].FirstOrDefault() ?? "Student";
-        var subject = isAuthenticated
-            ? principal.FindFirst("sub")?.Value ?? principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? requestedUserId
-            : requestedUserId;
+        var role = principal.FindFirst("role")?.Value ?? principal.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
+        var subject = principal.FindFirst("sub")?.Value ?? principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? requestedUserId;
         var tenantId = principal.FindFirst("tenant_id")?.Value
             ?? httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault()
             ?? "default";

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { getAdminSession } from "./auth-client";
+import { apiConfig } from "./api-config";
 
 const suggestedPrompts = [
   "Show university performance analytics",
@@ -15,7 +17,7 @@ export default function ChatWidget() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const endpoint = process.env.NEXT_PUBLIC_AI_ASSISTANT_URL ?? "http://localhost:7007/api/chat";
+  const endpoint = apiConfig.assistant();
 
   const send = async (message: string) => {
     if (!message.trim()) {
@@ -27,22 +29,24 @@ export default function ChatWidget() {
     setLoading(true);
 
     try {
+      const session = await getAdminSession();
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Demo-Role": "Principal"
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
         },
         body: JSON.stringify({
           message,
-          userId: "00000000-0000-0000-0000-000000000999"
+          userId: session.user.id
         })
       });
 
       const payload = await response.json().catch(() => null);
       const text = response.ok && payload?.reply
         ? payload.reply
-        : "Assistant service is unreachable or rejected the request. Add admin JWT forwarding before enabling this widget in production.";
+        : "Assistant service is unreachable or rejected the request. Verify API URLs and identity token issuance.";
 
       setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: "assistant", text }]);
     } catch {
@@ -51,7 +55,7 @@ export default function ChatWidget() {
         {
           id: `${Date.now()}-assistant`,
           role: "assistant",
-          text: "Assistant service is unreachable or rejected the request. Add admin JWT forwarding before enabling this widget in production."
+          text: "Assistant service is unreachable or rejected the request. Verify API URLs and identity token issuance."
         }
       ]);
     } finally {
