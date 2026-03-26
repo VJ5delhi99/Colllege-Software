@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiConfig } from "../api-config";
 import { getAdminSession } from "../auth-client";
+import { demoPermissions, demoRoles } from "../demo-data";
+import { isDemoModeEnabled } from "../demo-mode";
 
 type RoleDefinition = {
   id: string;
@@ -21,12 +23,22 @@ export default function RbacPage() {
   const [roles, setRoles] = useState<RoleDefinition[]>([]);
   const [permissions, setPermissions] = useState<PermissionDefinition[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
+        if (demoMode) {
+          if (!cancelled) {
+            setRoles(demoRoles);
+            setPermissions(demoPermissions);
+            setError(null);
+          }
+          return;
+        }
+
         const session = await getAdminSession();
         const headers = {
           Authorization: `Bearer ${session.accessToken}`,
@@ -62,7 +74,7 @@ export default function RbacPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [demoMode]);
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
@@ -70,6 +82,7 @@ export default function RbacPage() {
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-cyan-300">Security</p>
           <h1 className="mt-2 text-4xl font-semibold">RBAC Catalog</h1>
+          {demoMode ? <p className="mt-3 text-sm text-slate-400">Demo mode is showing local role and permission fixtures.</p> : null}
         </div>
         <Link href="/" className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-200">
           Back to Dashboard

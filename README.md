@@ -257,6 +257,7 @@ The repository covers more of the ERP now, but several areas are still partial r
 ### Frontend Environment Variables
 
 - Web:
+  - `NEXT_PUBLIC_DEMO_MODE`
   - `NEXT_PUBLIC_IDENTITY_API_URL`
   - `NEXT_PUBLIC_AUTHORIZATION_API_URL`
   - `NEXT_PUBLIC_ACADEMIC_API_URL`
@@ -273,6 +274,37 @@ The repository covers more of the ERP now, but several areas are still partial r
   - `EXPO_PUBLIC_AI_ASSISTANT_URL`
 
 Use [.env.example](c:/Users/user/Documents/GitHub/Colllege-Software/.env.example) as the template. Web examples use `localhost`; mobile examples intentionally use `YOUR_MACHINE_IP` because Expo apps running on physical devices cannot call the host machine through `localhost`.
+
+### UI-Only Demo Mode
+
+If you want to share only the web UI without backend services, send the `web-admin` folder and run it in demo mode:
+
+```powershell
+cd web-admin
+Copy-Item ..\.env.example .env.local
+```
+
+Set this in `web-admin/.env.local`:
+
+```dotenv
+NEXT_PUBLIC_DEMO_MODE=true
+```
+
+Then run:
+
+```powershell
+npm install
+npm run dev
+```
+
+Demo mode keeps the existing layout and interactions, but serves local fixture data for:
+
+- admin session bootstrap
+- dashboard metrics
+- RBAC catalog
+- AI assistant replies
+
+That allows the UI to run cleanly without `identity-service`, `authorization-service`, `academic-service`, `attendance-service`, `communication-service`, `finance-service`, or `ai-assistant-service`.
 
 ### One-Command Local Stack
 

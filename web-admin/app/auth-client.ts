@@ -1,4 +1,6 @@
 import { apiConfig } from "./api-config";
+import { demoSession } from "./demo-data";
+import { isDemoModeEnabled } from "./demo-mode";
 
 type AuthSession = {
   accessToken: string;
@@ -22,6 +24,24 @@ export async function getAdminSession(): Promise<AuthSession> {
     if (cached) {
       return JSON.parse(cached) as AuthSession;
     }
+  }
+
+  if (isDemoModeEnabled()) {
+    const session: AuthSession = {
+      ...demoSession,
+      user: {
+        id: demoSession.userId,
+        email: demoSession.email,
+        role: demoSession.role,
+        tenantId: demoSession.tenantId
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }
+
+    return session;
   }
 
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/token`, {

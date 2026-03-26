@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { getAdminSession } from "./auth-client";
 import { apiConfig } from "./api-config";
+import { demoDashboardState } from "./demo-data";
+import { isDemoModeEnabled } from "./demo-mode";
 
 type DashboardState = {
   enrollment: number;
@@ -35,6 +37,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usingCache, setUsingCache] = useState(false);
+  const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
     const readCachedState = (): DashboardState | null => {
@@ -62,6 +65,15 @@ export default function DashboardPage() {
 
       window.localStorage.setItem(dashboardCacheKey, JSON.stringify(nextState));
     };
+
+    if (demoMode) {
+      setState(demoDashboardState);
+      writeCachedState(demoDashboardState);
+      setUsingCache(false);
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
     getAdminSession()
       .then((session) =>
@@ -152,7 +164,7 @@ export default function DashboardPage() {
                 University360 Admin
               </span>
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.22em] text-slate-300">
-                {usingCache ? "Cached Snapshot" : "Live Command Center"}
+                {demoMode ? "Demo Mode" : usingCache ? "Cached Snapshot" : "Live Command Center"}
               </span>
             </div>
             <h2 className="mt-6 max-w-3xl text-4xl font-semibold leading-tight text-white sm:text-5xl">
@@ -171,7 +183,7 @@ export default function DashboardPage() {
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               <div className="rounded-[1.5rem] border border-white/10 bg-white/6 px-4 py-4 backdrop-blur">
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Status</p>
-                <p className="mt-3 text-xl font-semibold text-white">{loading ? "Syncing" : usingCache ? "Cached" : error ? "Offline" : "Healthy"}</p>
+                <p className="mt-3 text-xl font-semibold text-white">{loading ? "Syncing" : demoMode ? "Demo" : usingCache ? "Cached" : error ? "Offline" : "Healthy"}</p>
               </div>
               <div className="rounded-[1.5rem] border border-white/10 bg-white/6 px-4 py-4 backdrop-blur">
                 <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Latest Notice</p>
@@ -244,7 +256,7 @@ export default function DashboardPage() {
               <h3 className="mt-3 text-2xl font-semibold text-white">Live decision surface</h3>
             </div>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">
-              {loading ? "Refreshing" : usingCache ? "Cached" : error ? "Offline" : "Realtime"}
+              {loading ? "Refreshing" : demoMode ? "Demo" : usingCache ? "Cached" : error ? "Offline" : "Realtime"}
             </span>
           </div>
 

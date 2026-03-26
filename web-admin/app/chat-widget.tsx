@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { getAdminSession } from "./auth-client";
 import { apiConfig } from "./api-config";
+import { getDemoAssistantReply } from "./demo-data";
+import { isDemoModeEnabled } from "./demo-mode";
 
 const suggestedPrompts = [
   "Show university performance analytics",
@@ -11,6 +13,7 @@ const suggestedPrompts = [
 ];
 
 export default function ChatWidget() {
+  const demoMode = isDemoModeEnabled();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
     { id: "welcome", role: "assistant", text: "Ask for analytics, announcements, or role-based ERP actions." }
@@ -29,6 +32,12 @@ export default function ChatWidget() {
     setLoading(true);
 
     try {
+      if (demoMode) {
+        const text = getDemoAssistantReply(message);
+        setMessages((current) => [...current, { id: `${Date.now()}-assistant`, role: "assistant", text }]);
+        return;
+      }
+
       const session = await getAdminSession();
       const response = await fetch(endpoint, {
         method: "POST",
@@ -70,7 +79,7 @@ export default function ChatWidget() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.25em] text-cyan-300">AI Assistant</p>
-              <p className="mt-1 text-sm text-slate-400">University360 admin copilot</p>
+              <p className="mt-1 text-sm text-slate-400">{demoMode ? "University360 admin copilot demo" : "University360 admin copilot"}</p>
             </div>
             <button className="text-slate-400" onClick={() => setOpen(false)}>Close</button>
           </div>
