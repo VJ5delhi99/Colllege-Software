@@ -73,6 +73,37 @@ public static class MigrationsExtensions
         }
 
         var databaseCreator = dbContext.GetService<IRelationalDatabaseCreator>();
-        await databaseCreator.CreateTablesAsync();
+        var createScript = databaseCreator.GenerateCreateScript();
+        foreach (var statement in SplitStatements(createScript))
+        {
+            try
+            {
+                await dbContext.Database.ExecuteSqlRawAsync(statement);
+            }
+            catch (Exception exception) when (IsAlreadyExistsError(exception))
+            {
+                // Shared schemas can already contain some objects from a partially-completed
+                // bootstrap pass or from another service. Ignore duplicate object creation and
+                // continue applying the remaining statements for this DbContext.
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> SplitStatements(string script)
+    {
+        return script
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(statement => statement.Trim())
+            .Where(statement => !string.IsNullOrWhiteSpace(statement))
+            .ToArray();
+    }
+
+    private static bool IsAlreadyExistsError(Exception exception)
+    {
+        var message = exception.Message;
+        return message.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("already an object named", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("duplicate key name", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase);
     }
 }
