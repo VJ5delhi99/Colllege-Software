@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -27,7 +29,7 @@ public static class MigrationsExtensions
                     }
                     else
                     {
-                        await dbContext.Database.EnsureCreatedAsync();
+                        await EnsureSchemaObjectsExistAsync(dbContext);
                     }
 
                     return;
@@ -53,6 +55,24 @@ public static class MigrationsExtensions
             }
         }
 
-        await dbContext.Database.EnsureCreatedAsync();
+        await EnsureSchemaObjectsExistAsync(dbContext);
+    }
+
+    private static async Task EnsureSchemaObjectsExistAsync<TDbContext>(TDbContext dbContext)
+        where TDbContext : DbContext
+    {
+        var created = await dbContext.Database.EnsureCreatedAsync();
+        if (created)
+        {
+            return;
+        }
+
+        if (!dbContext.Database.IsRelational())
+        {
+            return;
+        }
+
+        var databaseCreator = dbContext.GetService<IRelationalDatabaseCreator>();
+        await databaseCreator.CreateTablesAsync();
     }
 }
