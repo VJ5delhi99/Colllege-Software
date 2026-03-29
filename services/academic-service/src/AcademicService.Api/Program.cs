@@ -16,10 +16,11 @@ app.MapGet("/", () => Results.Ok(new { service = "academic-service", status = "r
 app.MapPost("/api/v1/courses", async (HttpContext httpContext, [FromBody] CreateCourseRequest request, AcademicDbContext dbContext) =>
 {
     httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
     var course = new Course
     {
         Id = Guid.NewGuid(),
-        TenantId = httpContext.GetValidatedTenantId(),
+        TenantId = tenantId,
         CourseCode = request.CourseCode,
         Title = request.Title,
         Credits = request.Credits,
@@ -31,6 +32,7 @@ app.MapPost("/api/v1/courses", async (HttpContext httpContext, [FromBody] Create
     };
 
     dbContext.Courses.Add(course);
+    dbContext.AuditLogs.Add(AcademicAuditLog.Create(tenantId, "academic.course.created", course.Id.ToString(), httpContext.User.Identity?.Name ?? "academic-service", $"Course {course.CourseCode} created for {course.SemesterCode}."));
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/courses/{course.Id}", course);
 }).RequirePermissions("rbac.manage").RequireRateLimiting("api");
@@ -68,6 +70,17 @@ app.MapGet("/api/v1/dashboard/summary", async (HttpContext httpContext, Academic
         totalCourses,
         nextCourse
     });
+}).RequirePermissions("results.view");
+
+app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, AcademicDbContext dbContext, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.AuditLogs.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.CreatedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { items, page = safePage, pageSize = safePageSize, total });
 }).RequirePermissions("results.view");
 
 app.Run();
@@ -152,9 +165,33 @@ public sealed class Course
     public string Room { get; set; } = string.Empty;
 }
 
+public sealed class AcademicAuditLog
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Action { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public static AcademicAuditLog Create(string tenantId, string action, string entityId, string actor, string details) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Action = action,
+            EntityId = entityId,
+            Actor = actor,
+            Details = details,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+}
+
 public sealed class AcademicDbContext(DbContextOptions<AcademicDbContext> options) : DbContext(options)
 {
     public DbSet<Course> Courses => Set<Course>();
+    public DbSet<AcademicAuditLog> AuditLogs => Set<AcademicAuditLog>();
 }
 
 public static class KnownUsers

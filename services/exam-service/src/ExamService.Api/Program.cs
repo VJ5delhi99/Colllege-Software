@@ -16,10 +16,11 @@ app.MapGet("/", () => Results.Ok(new { service = "exam-service", security = "pub
 app.MapPost("/api/v1/results", async (HttpContext httpContext, [FromBody] PublishResultRequest request, ExamDbContext dbContext) =>
 {
     httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
     var result = new StudentResult
     {
         Id = Guid.NewGuid(),
-        TenantId = httpContext.GetValidatedTenantId(),
+        TenantId = tenantId,
         StudentId = request.StudentId,
         SemesterCode = request.SemesterCode,
         Gpa = request.Gpa,
@@ -28,12 +29,32 @@ app.MapPost("/api/v1/results", async (HttpContext httpContext, [FromBody] Publis
     };
 
     dbContext.StudentResults.Add(result);
+    dbContext.AuditLogs.Add(ExamAuditLog.Create(tenantId, "exam.result.published", result.Id.ToString(), httpContext.User.Identity?.Name ?? "exam-service", $"Result recorded for semester {result.SemesterCode} with GPA {result.Gpa}."));
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/results/{result.Id}", result);
 }).RequirePermissions("results.publish").RequireRateLimiting("api");
 
-app.MapGet("/api/v1/results", async (HttpContext httpContext, ExamDbContext dbContext) =>
-    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.PublishedAtUtc).ToListAsync())
+app.MapGet("/api/v1/results", async (HttpContext httpContext, ExamDbContext dbContext, Guid? studentId, string? semesterCode, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.StudentResults.Where(x => x.TenantId == tenantId);
+
+    if (studentId.HasValue)
+    {
+        query = query.Where(x => x.StudentId == studentId.Value);
+    }
+
+    if (!string.IsNullOrWhiteSpace(semesterCode))
+    {
+        query = query.Where(x => x.SemesterCode == semesterCode);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderByDescending(x => x.PublishedAtUtc).Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { items, page = safePage, pageSize = safePageSize, total });
+})
     .RequirePermissions("results.view");
 
 app.MapGet("/api/v1/results/{studentId:guid}", async (Guid studentId, HttpContext httpContext, ExamDbContext dbContext) =>
@@ -50,6 +71,17 @@ app.MapGet("/api/v1/results/summary", async (HttpContext httpContext, ExamDbCont
         averageGpa = published.Count == 0 ? 0 : Math.Round(published.Average(x => x.Gpa), 2),
         latest = published.OrderByDescending(x => x.PublishedAtUtc).FirstOrDefault()
     });
+}).RequirePermissions("results.view");
+
+app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, ExamDbContext dbContext, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.AuditLogs.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.CreatedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { items, page = safePage, pageSize = safePageSize, total });
 }).RequirePermissions("results.view");
 
 app.Run();
@@ -103,9 +135,33 @@ public sealed class StudentResult
     public DateTimeOffset? PublishedAtUtc { get; set; }
 }
 
+public sealed class ExamAuditLog
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Action { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public static ExamAuditLog Create(string tenantId, string action, string entityId, string actor, string details) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Action = action,
+            EntityId = entityId,
+            Actor = actor,
+            Details = details,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+}
+
 public sealed class ExamDbContext(DbContextOptions<ExamDbContext> options) : DbContext(options)
 {
     public DbSet<StudentResult> StudentResults => Set<StudentResult>();
+    public DbSet<ExamAuditLog> AuditLogs => Set<ExamAuditLog>();
 }
 
 public static class KnownUsers

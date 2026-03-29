@@ -113,11 +113,14 @@ export default function OperationsPage() {
         const canManageRbac = session.permissions.includes("rbac.manage");
         const canManageFinance = session.permissions.includes("finance.manage");
         const canViewAttendance = session.permissions.includes("attendance.view");
+        const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, communicationAuditPayload, studentAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+        const [notificationsPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac),
+          loadOptionalJson(`${apiConfig.academic()}/api/v1/audit-logs?pageSize=10`, headers, canViewResults),
+          loadOptionalJson(`${apiConfig.exam()}/api/v1/audit-logs?pageSize=10`, headers, canViewResults),
           loadOptionalJson(`${apiConfig.finance()}/api/v1/audit-logs?pageSize=10`, headers, canManageFinance),
           loadOptionalJson(`${apiConfig.attendance()}/api/v1/audit-logs?pageSize=10`, headers, canViewAttendance),
           loadOptionalJson(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac)
@@ -126,6 +129,8 @@ export default function OperationsPage() {
         const mergedAuditLogs = [
           ...((communicationAuditPayload?.items ?? []) as AuditLogItem[]),
           ...((studentAuditPayload?.items ?? []) as AuditLogItem[]),
+          ...((academicAuditPayload?.items ?? []) as AuditLogItem[]),
+          ...((examAuditPayload?.items ?? []) as AuditLogItem[]),
           ...((financeAuditPayload?.items ?? []) as AuditLogItem[]),
           ...((attendanceAuditPayload?.items ?? []) as AuditLogItem[]),
           ...((identityAuditPayload?.items ?? []) as AuditLogItem[])
@@ -148,8 +153,10 @@ export default function OperationsPage() {
     }
 
     load();
+    const intervalId = window.setInterval(load, 30000);
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [demoMode]);
 

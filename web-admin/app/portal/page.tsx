@@ -17,7 +17,7 @@ type RolePortalState = {
 const demoStudentState: RolePortalState = {
   headline: "Student workspace with the next academic step in front.",
   summary: "Track attendance, results, upcoming classes, and fee posture from a single student-friendly surface.",
-  primaryAction: { label: "Review results", href: "/portal" },
+  primaryAction: { label: "Open student workspace", href: "/student" },
   secondaryAction: { label: "Open public homepage", href: "/" },
   cards: [
     { title: "Attendance", value: "83%", note: "Physics recovery needed this week." },
@@ -30,7 +30,7 @@ const demoStudentState: RolePortalState = {
 const demoTeacherState: RolePortalState = {
   headline: "Teacher workflow that keeps classes, attendance, and student outcomes connected.",
   summary: "Manage attendance capture, class cadence, and communication without hopping between disconnected tools.",
-  primaryAction: { label: "Open operations hub", href: "/ops" },
+  primaryAction: { label: "Open teacher workspace", href: "/teacher" },
   secondaryAction: { label: "Review roles", href: "/rbac" },
   cards: [
     { title: "Active sessions", value: "3", note: "Classes still open for attendance capture." },
@@ -43,7 +43,7 @@ const demoTeacherState: RolePortalState = {
 const demoAdminState: RolePortalState = {
   headline: "Admin oversight across campuses, people, and institutional risk.",
   summary: "Use the admin portal to move from public discovery into authenticated action with analytics, audit visibility, and role controls.",
-  primaryAction: { label: "Open operations hub", href: "/ops" },
+  primaryAction: { label: "Open admin workspace", href: "/admin" },
   secondaryAction: { label: "Review RBAC", href: "/rbac" },
   cards: [
     { title: "Enrollment", value: "2,480", note: "Across active colleges and campuses." },
@@ -88,7 +88,7 @@ function buildPortalState(
     return {
       headline: "Student workspace with the next academic step in front.",
       summary: "See attendance health, fee posture, upcoming classes, and notifications in a calm surface built for daily student decisions.",
-      primaryAction: { label: "Back to homepage", href: "/" },
+      primaryAction: { label: "Open student workspace", href: "/student" },
       secondaryAction: { label: "Open auth", href: "/auth" },
       cards: [
         { title: "Attendance", value: `${metrics.attendancePercentage ?? 0}%`, note: "Current attendance summary." },
@@ -103,7 +103,7 @@ function buildPortalState(
     return {
       headline: "Teacher workflow that keeps classes, attendance, and student outcomes connected.",
       summary: "Stay on top of active sessions, communication, and operational issues without losing context between teaching and administration.",
-      primaryAction: { label: "Open operations hub", href: "/ops" },
+      primaryAction: { label: "Open teacher workspace", href: "/teacher" },
       secondaryAction: { label: "Back to homepage", href: "/" },
       cards: [
         { title: "Attendance", value: `${metrics.attendancePercentage ?? 0}%`, note: "Current attendance rate across captured records." },
@@ -117,7 +117,7 @@ function buildPortalState(
   return {
     headline: "Admin oversight across campuses, people, and institutional risk.",
     summary: "Move directly into operational control with live signals for enrollment, finance, announcements, and recent audited changes.",
-    primaryAction: { label: "Open operations hub", href: "/ops" },
+    primaryAction: { label: "Open admin workspace", href: "/admin" },
     secondaryAction: { label: "Review RBAC", href: "/rbac" },
     cards: [
       { title: "Enrollment", value: `${metrics.userTotal ?? 0}`, note: "Visible users in the current tenant scope." },
@@ -169,6 +169,8 @@ export default function PortalPage() {
           notificationsPayload,
           communicationAuditPayload,
           studentAuditPayload,
+          academicAuditPayload,
+          examAuditPayload,
           financeAuditPayload,
           attendanceAuditPayload,
           identityAuditPayload
@@ -181,6 +183,8 @@ export default function PortalPage() {
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(activeSession.user.role)}`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=5`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=5`, headers, canManageRbac),
+          loadOptionalJson(`${apiConfig.academic()}/api/v1/audit-logs?pageSize=5`, headers, canViewResults),
+          loadOptionalJson(`${apiConfig.exam()}/api/v1/audit-logs?pageSize=5`, headers, canViewResults),
           loadOptionalJson(`${apiConfig.finance()}/api/v1/audit-logs?pageSize=5`, headers, canManageFinance),
           loadOptionalJson(`${apiConfig.attendance()}/api/v1/audit-logs?pageSize=5`, headers, canViewAttendance),
           loadOptionalJson(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=5`, headers, canManageRbac)
@@ -189,6 +193,8 @@ export default function PortalPage() {
         const auditCount =
           (communicationAuditPayload?.items?.length ?? 0) +
           (studentAuditPayload?.items?.length ?? 0) +
+          (academicAuditPayload?.items?.length ?? 0) +
+          (examAuditPayload?.items?.length ?? 0) +
           (financeAuditPayload?.items?.length ?? 0) +
           (attendanceAuditPayload?.items?.length ?? 0) +
           (identityAuditPayload?.items?.length ?? 0);
@@ -220,8 +226,10 @@ export default function PortalPage() {
     }
 
     load();
+    const intervalId = window.setInterval(load, 30000);
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, [demoMode]);
 
@@ -303,6 +311,9 @@ export default function PortalPage() {
             <p className="mt-3 text-sm leading-7 text-slate-400">
               Attendance, results, classes, and fee posture should be visible immediately instead of buried under admin-first navigation.
             </p>
+            <Link href="/student" className="mt-5 inline-flex rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
+              Open student flow
+            </Link>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Teacher path</p>
@@ -310,6 +321,9 @@ export default function PortalPage() {
             <p className="mt-3 text-sm leading-7 text-slate-400">
               Teaching staff need fast access to attendance, communication, and class context without carrying operational overhead from admin-only surfaces.
             </p>
+            <Link href="/teacher" className="mt-5 inline-flex rounded-full border border-amber-200/20 bg-amber-200/10 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-200/15">
+              Open teacher flow
+            </Link>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-300">Admin path</p>
@@ -317,6 +331,9 @@ export default function PortalPage() {
             <p className="mt-3 text-sm leading-7 text-slate-400">
               Administrative users should be able to pivot from role control to communications, finance, and audited operational changes without losing tenant boundaries.
             </p>
+            <Link href="/admin" className="mt-5 inline-flex rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-4 py-2 text-sm font-medium text-fuchsia-100 transition hover:bg-fuchsia-400/15">
+              Open admin flow
+            </Link>
           </article>
         </section>
       </div>
