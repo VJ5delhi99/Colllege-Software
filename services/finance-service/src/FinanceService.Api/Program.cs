@@ -18,12 +18,14 @@ app.MapGet("/", () => Results.Ok(new { service = "finance-service", gateways = n
 app.MapGet("/api/v1/payment-providers", (PaymentGatewayCatalog gateways) => Results.Ok(gateways.GetProviders()))
     .RequirePermissions("finance.manage");
 
-app.MapPost("/api/v1/payments", async ([FromBody] RecordPaymentRequest request, FinanceDbContext dbContext) =>
+app.MapPost("/api/v1/payments", async (HttpContext httpContext, [FromBody] RecordPaymentRequest request, FinanceDbContext dbContext) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
     var payment = new Payment
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = tenantId,
         StudentId = request.StudentId,
         Amount = request.Amount,
         Currency = request.Currency,
@@ -34,20 +36,22 @@ app.MapPost("/api/v1/payments", async ([FromBody] RecordPaymentRequest request, 
     };
 
     dbContext.Payments.Add(payment);
+    dbContext.AuditLogs.Add(FinanceAuditLog.Create(tenantId, "payment.recorded", payment.Id.ToString(), httpContext.User.Identity?.Name ?? "finance-service", $"Payment recorded for invoice {payment.InvoiceNumber} with status {payment.Status}."));
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/payments/{payment.Id}", payment);
 }).RequirePermissions("finance.manage");
 
 app.MapGet("/api/v1/payments", async (HttpContext httpContext, FinanceDbContext dbContext) =>
-    await dbContext.Payments.Where(x => x.TenantId == httpContext.GetTenantId()).OrderByDescending(x => x.PaidAtUtc).ToListAsync())
+    await dbContext.Payments.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.PaidAtUtc).ToListAsync())
     .RequirePermissions("finance.manage");
 
 app.MapGet("/api/v1/payments/{studentId:guid}", async (Guid studentId, HttpContext httpContext, FinanceDbContext dbContext) =>
-    await dbContext.Payments.Where(x => x.TenantId == httpContext.GetTenantId() && x.StudentId == studentId).ToListAsync())
+    await dbContext.Payments.Where(x => x.TenantId == httpContext.GetValidatedTenantId() && x.StudentId == studentId).ToListAsync())
     .RequirePermissions("finance.manage");
 
-app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
+app.MapPost("/api/v1/payment-sessions", async (HttpContext httpContext, [FromBody] PaymentSessionRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
     var providerConfig = gateways.GetProvider(request.Provider);
     if (providerConfig is null)
     {
@@ -57,7 +61,7 @@ app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest 
     var session = new PaymentSession
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = httpContext.GetValidatedTenantId(),
         StudentId = request.StudentId,
         Provider = request.Provider,
         Amount = request.Amount,
@@ -71,6 +75,7 @@ app.MapPost("/api/v1/payment-sessions", async ([FromBody] PaymentSessionRequest 
     };
 
     dbContext.PaymentSessions.Add(session);
+    dbContext.AuditLogs.Add(FinanceAuditLog.Create(session.TenantId, "payment.session.created", session.Id.ToString(), httpContext.User.Identity?.Name ?? "finance-service", $"Payment session created for invoice {session.InvoiceNumber} via {session.Provider}."));
     await dbContext.SaveChangesAsync();
 
     return Results.Ok(new
@@ -94,6 +99,12 @@ app.MapPost("/api/v1/payment-webhooks/{provider}", async (string provider, [From
     if (session is null)
     {
         return Results.NotFound();
+    }
+
+    var alreadyProcessed = await dbContext.WebhookReceipts.AnyAsync(x => x.Provider == provider && x.ProviderReference == request.ProviderReference && x.Signature == request.Signature);
+    if (alreadyProcessed || string.Equals(session.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Accepted();
     }
 
     session.Status = request.Status;
@@ -120,36 +131,50 @@ app.MapPost("/api/v1/payment-webhooks/{provider}", async (string provider, [From
         PayloadJson = request.PayloadJson,
         ReceivedAtUtc = DateTimeOffset.UtcNow
     });
+    dbContext.AuditLogs.Add(FinanceAuditLog.Create(session.TenantId, "payment.webhook.processed", session.Id.ToString(), provider, $"Webhook marked session {session.ProviderReference} as {request.Status}."));
 
     await dbContext.SaveChangesAsync();
     return Results.Accepted();
 });
 
-app.MapPost("/api/v1/payment-refunds", async ([FromBody] RefundRequest request, FinanceDbContext dbContext) =>
+app.MapPost("/api/v1/payment-refunds", async (HttpContext httpContext, [FromBody] RefundRequest request, FinanceDbContext dbContext) =>
 {
-    var payment = await dbContext.Payments.FirstOrDefaultAsync(x => x.Id == request.PaymentId && x.TenantId == request.TenantId);
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
+    var payment = await dbContext.Payments.FirstOrDefaultAsync(x => x.Id == request.PaymentId && x.TenantId == tenantId);
     if (payment is null)
     {
         return Results.NotFound();
+    }
+
+    if (!string.Equals(payment.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = "Only paid transactions can be refunded." });
+    }
+
+    if (request.Amount <= 0 || request.Amount > payment.Amount)
+    {
+        return Results.BadRequest(new { message = "Refund amount is invalid." });
     }
 
     payment.Status = "Refunded";
     dbContext.Refunds.Add(new PaymentRefund
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = tenantId,
         PaymentId = request.PaymentId,
         Reason = request.Reason,
         Amount = request.Amount,
         RequestedAtUtc = DateTimeOffset.UtcNow
     });
+    dbContext.AuditLogs.Add(FinanceAuditLog.Create(tenantId, "payment.refund.requested", payment.Id.ToString(), httpContext.User.Identity?.Name ?? "finance-service", $"Refund requested for invoice {payment.InvoiceNumber} amount {request.Amount}."));
     await dbContext.SaveChangesAsync();
     return Results.Accepted();
 }).RequirePermissions("payments.refund");
 
 app.MapGet("/api/v1/payments/summary", async (HttpContext httpContext, FinanceDbContext dbContext) =>
 {
-    var tenantId = httpContext.GetTenantId();
+    var tenantId = httpContext.GetValidatedTenantId();
     var payments = await dbContext.Payments.Where(x => x.TenantId == tenantId && x.Status == "Paid").ToListAsync();
     var pendingReconciliation = await dbContext.PaymentSessions.CountAsync(x => x.TenantId == tenantId && x.Status == "Pending");
     return Results.Ok(new
@@ -161,9 +186,20 @@ app.MapGet("/api/v1/payments/summary", async (HttpContext httpContext, FinanceDb
     });
 }).RequirePermissions("finance.manage");
 
-app.MapGet("/api/v1/reconciliation/runs", async (FinanceDbContext dbContext) =>
-    await dbContext.ReconciliationRuns.OrderByDescending(x => x.ExecutedAtUtc).Take(20).ToListAsync())
+app.MapGet("/api/v1/reconciliation/runs", async (HttpContext httpContext, FinanceDbContext dbContext) =>
+    await dbContext.ReconciliationRuns.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.ExecutedAtUtc).Take(20).ToListAsync())
     .RequirePermissions("finance.manage");
+
+app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, FinanceDbContext dbContext, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.AuditLogs.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.CreatedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequirePermissions("finance.manage");
 
 app.Run();
 
@@ -285,10 +321,27 @@ public sealed class ReconciliationRun
     public DateTimeOffset ExecutedAtUtc { get; set; }
 }
 
-static class TenantExtensions
+public sealed class FinanceAuditLog
 {
-    public static string GetTenantId(this HttpContext httpContext) =>
-        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Action { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public static FinanceAuditLog Create(string tenantId, string action, string entityId, string actor, string details) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Action = action,
+            EntityId = entityId,
+            Actor = actor,
+            Details = details,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
 }
 
 public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options) : DbContext(options)
@@ -298,6 +351,7 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
     public DbSet<PaymentWebhookReceipt> WebhookReceipts => Set<PaymentWebhookReceipt>();
     public DbSet<PaymentRefund> Refunds => Set<PaymentRefund>();
     public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
+    public DbSet<FinanceAuditLog> AuditLogs => Set<FinanceAuditLog>();
 }
 
 public sealed class PaymentGatewayCatalog(IConfiguration configuration)
@@ -330,8 +384,7 @@ public sealed class PaymentGatewayCatalog(IConfiguration configuration)
 
         using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(provider.WebhookSecret));
         var computed = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payloadJson))).ToLowerInvariant();
-        return string.Equals(computed, signature, StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(provider.WebhookSecret, signature, StringComparison.Ordinal);
+        return string.Equals(computed, signature, StringComparison.OrdinalIgnoreCase);
     }
 }
 
@@ -358,6 +411,7 @@ public sealed class PaymentReconciliationWorker(IServiceProvider serviceProvider
                         CompletedSessions = pending.Count(x => x.Status == "Paid"),
                         ExecutedAtUtc = DateTimeOffset.UtcNow
                     });
+                    dbContext.AuditLogs.Add(FinanceAuditLog.Create(pending[0].TenantId, "payment.reconciliation.executed", Guid.NewGuid().ToString(), "payment-reconciliation-worker", $"Reconciliation scanned {pending.Count} pending payment sessions."));
 
                     await dbContext.SaveChangesAsync(stoppingToken);
                 }

@@ -11,22 +11,56 @@ await app.EnsureDatabaseReadyAsync<StudentDbContext>();
 await SeedAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "student-service", status = "ready" }));
-app.MapGet("/api/v1/students", async (HttpContext httpContext, StudentDbContext db) =>
-    await db.Students.Where(x => x.TenantId == httpContext.GetTenantId()).ToListAsync());
+app.MapGet("/api/v1/students", async (HttpContext httpContext, StudentDbContext db, string? search, string? department, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+    var query = db.Students.Where(x => x.TenantId == tenantId);
+
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        query = query.Where(x => x.Name.Contains(search) || x.Email.Contains(search) || x.Batch.Contains(search));
+    }
+
+    if (!string.IsNullOrWhiteSpace(department))
+    {
+        query = query.Where(x => x.Department == department);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderBy(x => x.Name).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
+})
+    .RequirePermissions("rbac.manage");
 app.MapGet("/api/v1/students/{id:guid}", async (Guid id, HttpContext httpContext, StudentDbContext db) =>
-    await db.Students.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == httpContext.GetTenantId()) is { } student ? Results.Ok(student) : Results.NotFound());
+    await db.Students.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == httpContext.GetValidatedTenantId()) is { } student ? Results.Ok(student) : Results.NotFound())
+    .RequirePermissions("rbac.manage");
 app.MapGet("/api/v1/students/{id:guid}/profile", async (Guid id, HttpContext httpContext, StudentDbContext db) =>
-    await db.Students.Where(x => x.Id == id && x.TenantId == httpContext.GetTenantId()).Select(x => new { x.Id, x.Name, x.Department, x.Batch, x.Email, x.AcademicStatus }).FirstOrDefaultAsync() is { } profile ? Results.Ok(profile) : Results.NotFound());
+    await db.Students.Where(x => x.Id == id && x.TenantId == httpContext.GetValidatedTenantId()).Select(x => new { x.Id, x.Name, x.Department, x.Batch, x.Email, x.AcademicStatus }).FirstOrDefaultAsync() is { } profile ? Results.Ok(profile) : Results.NotFound())
+    .RequirePermissions("rbac.manage");
 app.MapGet("/api/v1/students/{id:guid}/enrollments", async (Guid id, HttpContext httpContext, StudentDbContext db) =>
-    await db.Enrollments.Where(x => x.StudentId == id && x.TenantId == httpContext.GetTenantId()).OrderByDescending(x => x.EnrolledAtUtc).ToListAsync())
+    await db.Enrollments.Where(x => x.StudentId == id && x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.EnrolledAtUtc).ToListAsync())
     .RequirePermissions("results.view");
 
-app.MapPost("/api/v1/enrollments", async ([FromBody] EnrollmentRequest request, StudentDbContext db) =>
+app.MapPost("/api/v1/enrollments", async (HttpContext httpContext, [FromBody] EnrollmentRequest request, StudentDbContext db) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
+    var exists = await db.Enrollments.AnyAsync(x =>
+        x.TenantId == tenantId &&
+        x.StudentId == request.StudentId &&
+        x.CourseCode == request.CourseCode &&
+        x.SemesterCode == request.SemesterCode);
+    if (exists)
+    {
+        return Results.Conflict(new { message = "Enrollment already exists for this student, course, and semester." });
+    }
+
     var enrollment = new StudentEnrollment
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = tenantId,
         StudentId = request.StudentId,
         CourseCode = request.CourseCode,
         SemesterCode = request.SemesterCode,
@@ -35,8 +69,29 @@ app.MapPost("/api/v1/enrollments", async ([FromBody] EnrollmentRequest request, 
     };
 
     db.Enrollments.Add(enrollment);
+    db.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "student.enrollment.created",
+        EntityId = enrollment.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{request.StudentId}:{request.CourseCode}:{request.SemesterCode}",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
     await db.SaveChangesAsync();
     return Results.Created($"/api/v1/enrollments/{enrollment.Id}", enrollment);
+}).RequirePermissions("rbac.manage");
+
+app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, StudentDbContext db, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+    var query = db.AuditLogs.Where(x => x.TenantId == tenantId);
+    var total = await query.CountAsync();
+    var items = await query.OrderByDescending(x => x.CreatedAtUtc).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
 }).RequirePermissions("rbac.manage");
 
 app.Run();
@@ -91,14 +146,20 @@ public sealed class StudentEnrollment
     public DateTimeOffset EnrolledAtUtc { get; set; }
 }
 
-static class TenantExtensions
+public sealed class AuditLogEntry
 {
-    public static string GetTenantId(this HttpContext httpContext) =>
-        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Action { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
 public sealed class StudentDbContext(DbContextOptions<StudentDbContext> options) : DbContext(options)
 {
     public DbSet<StudentRecord> Students => Set<StudentRecord>();
     public DbSet<StudentEnrollment> Enrollments => Set<StudentEnrollment>();
+    public DbSet<AuditLogEntry> AuditLogs => Set<AuditLogEntry>();
 }

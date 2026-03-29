@@ -15,9 +15,9 @@ public static class SecretsValidationExtensions
 
         var requiredKeys = new[]
         {
-            "ConnectionStrings:mysql",
             "Platform:Jwt:SigningKey",
-            "Platform:ObjectStorage:SigningKey"
+            "Platform:ObjectStorage:SigningKey",
+            "Platform:Cors:AllowedOrigins:0"
         };
 
         foreach (var key in requiredKeys)
@@ -26,6 +26,28 @@ public static class SecretsValidationExtensions
             {
                 throw new InvalidOperationException($"Missing required production secret: {key}");
             }
+        }
+
+        var databaseProvider = configuration["Platform:DatabaseProvider"] ?? "SqlServer";
+        var connectionKey = string.Equals(databaseProvider, "MySql", StringComparison.OrdinalIgnoreCase)
+            ? "ConnectionStrings:mysql"
+            : "ConnectionStrings:sqlserver";
+
+        if (string.IsNullOrWhiteSpace(configuration[connectionKey]))
+        {
+            throw new InvalidOperationException($"Missing required production secret: {connectionKey}");
+        }
+
+        var jwtSigningKey = configuration["Platform:Jwt:SigningKey"];
+        if (string.Equals(jwtSigningKey, "development-signing-key-please-change", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Production JWT signing key must not use the development default.");
+        }
+
+        var objectStorageSigningKey = configuration["Platform:ObjectStorage:SigningKey"];
+        if (string.Equals(objectStorageSigningKey, "development-object-storage-signing-key", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Production object-storage signing key must not use the development default.");
         }
     }
 }

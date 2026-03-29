@@ -89,7 +89,14 @@ export default function RbacPage() {
         </Link>
       </div>
 
-      {error ? <p className="mx-auto mt-8 max-w-6xl rounded-3xl border border-rose-500/40 bg-rose-500/10 p-4 text-rose-100">{error}</p> : null}
+      {error ? (
+        <div className="mx-auto mt-8 max-w-6xl rounded-3xl border border-rose-500/40 bg-rose-500/10 p-4 text-rose-100">
+          <p>{error}</p>
+          <Link href="/auth" className="mt-3 inline-flex rounded-full border border-rose-200/20 bg-rose-50/10 px-4 py-2 text-sm text-white">
+            Open Sign-In
+          </Link>
+        </div>
+      ) : null}
 
       <section className="mx-auto mt-8 grid max-w-6xl gap-6 lg:grid-cols-2">
         <article className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-[0_0_80px_rgba(34,211,238,0.08)] backdrop-blur">

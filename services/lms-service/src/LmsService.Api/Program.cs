@@ -14,25 +14,32 @@ await SeedAsync(app);
 app.MapGet("/", () => Results.Ok(new { service = "lms-service", status = "ready", storage = "signed-url" }));
 
 app.MapGet("/api/v1/materials", async (HttpContext httpContext, LmsDbContext dbContext) =>
-    await dbContext.Materials.Where(x => x.TenantId == httpContext.GetTenantId()).ToListAsync())
+    await dbContext.Materials.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).ToListAsync())
     .RequirePermissions("results.view");
 
 app.MapGet("/api/v1/assignments", async (HttpContext httpContext, LmsDbContext dbContext) =>
-    await dbContext.Assignments.Where(x => x.TenantId == httpContext.GetTenantId()).ToListAsync())
+    await dbContext.Assignments.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).ToListAsync())
     .RequirePermissions("results.view");
 
-app.MapPost("/api/v1/materials/upload-request", async ([FromBody] UploadRequest request, IObjectStorageService storage, LmsDbContext dbContext) =>
+app.MapPost("/api/v1/materials/upload-request", async (HttpContext httpContext, [FromBody] UploadRequest request, IObjectStorageService storage, LmsDbContext dbContext) =>
 {
-    var objectKey = $"{request.TenantId}/materials/{Guid.NewGuid():N}-{request.FileName}";
+    httpContext.EnsureTenantAccess(request.TenantId);
+    if (!IsAllowedContentType(request.ContentType))
+    {
+        return Results.BadRequest(new { message = "Unsupported file type." });
+    }
+
+    var safeFileName = SanitizeFileName(request.FileName);
+    var objectKey = $"{httpContext.GetValidatedTenantId()}/materials/{Guid.NewGuid():N}-{safeFileName}";
     var signedUrl = await storage.CreateUploadUrlAsync("university360-materials", objectKey, request.ContentType, TimeSpan.FromMinutes(15));
     var material = new CourseMaterial
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = httpContext.GetValidatedTenantId(),
         CourseCode = request.CourseCode,
         Title = request.Title,
         ObjectKey = objectKey,
-        FileName = request.FileName
+        FileName = safeFileName
     };
 
     dbContext.Materials.Add(material);
@@ -40,16 +47,23 @@ app.MapPost("/api/v1/materials/upload-request", async ([FromBody] UploadRequest 
     return Results.Ok(new { material.Id, upload = signedUrl });
 }).RequirePermissions("files.upload");
 
-app.MapPost("/api/v1/assignments/upload-request", async ([FromBody] UploadRequest request, IObjectStorageService storage, LmsDbContext dbContext) =>
+app.MapPost("/api/v1/assignments/upload-request", async (HttpContext httpContext, [FromBody] UploadRequest request, IObjectStorageService storage, LmsDbContext dbContext) =>
 {
-    var objectKey = $"{request.TenantId}/assignments/{Guid.NewGuid():N}-{request.FileName}";
+    httpContext.EnsureTenantAccess(request.TenantId);
+    if (!IsAllowedContentType(request.ContentType))
+    {
+        return Results.BadRequest(new { message = "Unsupported file type." });
+    }
+
+    var safeFileName = SanitizeFileName(request.FileName);
+    var objectKey = $"{httpContext.GetValidatedTenantId()}/assignments/{Guid.NewGuid():N}-{safeFileName}";
     var signedUrl = await storage.CreateUploadUrlAsync("university360-assignments", objectKey, request.ContentType, TimeSpan.FromMinutes(15));
     var assignment = new AssignmentItem
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = httpContext.GetValidatedTenantId(),
         Title = request.Title,
-        FileName = request.FileName,
+        FileName = safeFileName,
         ObjectKey = objectKey,
         UploadedAtUtc = DateTimeOffset.UtcNow
     };
@@ -61,7 +75,7 @@ app.MapPost("/api/v1/assignments/upload-request", async ([FromBody] UploadReques
 
 app.MapGet("/api/v1/materials/{id:guid}/download-url", async (Guid id, HttpContext httpContext, IObjectStorageService storage, LmsDbContext dbContext) =>
 {
-    var material = await dbContext.Materials.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == httpContext.GetTenantId());
+    var material = await dbContext.Materials.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == httpContext.GetValidatedTenantId());
     if (material is null)
     {
         return Results.NotFound();
@@ -78,7 +92,7 @@ app.MapPost("/api/v1/files/{objectKey}/scan", async (string objectKey, LmsDbCont
         Id = Guid.NewGuid(),
         ObjectKey = objectKey,
         Scanner = "clamav-boundary",
-        Status = "Clean",
+        Status = "PendingReview",
         ScannedAtUtc = DateTimeOffset.UtcNow
     };
 
@@ -112,6 +126,22 @@ app.MapPost("/api/v1/storage/lifecycle-policies", async ([FromBody] LifecyclePol
 }).RequirePermissions("files.upload");
 
 app.Run();
+
+static bool IsAllowedContentType(string contentType) =>
+    contentType is
+        "application/pdf" or
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" or
+        "image/jpeg" or
+        "image/png" or
+        "text/plain";
+
+static string SanitizeFileName(string fileName)
+{
+    var invalidChars = Path.GetInvalidFileNameChars();
+    var sanitized = new string(fileName.Where(ch => !invalidChars.Contains(ch)).ToArray()).Trim();
+    return string.IsNullOrWhiteSpace(sanitized) ? "upload.bin" : sanitized.Replace(' ', '-');
+}
 
 static async Task SeedAsync(WebApplication app)
 {
@@ -175,10 +205,4 @@ public sealed class LmsDbContext(DbContextOptions<LmsDbContext> options) : DbCon
     public DbSet<AssignmentItem> Assignments => Set<AssignmentItem>();
     public DbSet<FileScanRecord> FileScans => Set<FileScanRecord>();
     public DbSet<StorageLifecyclePolicy> LifecyclePolicies => Set<StorageLifecyclePolicy>();
-}
-
-static class TenantExtensions
-{
-    public static string GetTenantId(this HttpContext httpContext) =>
-        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }

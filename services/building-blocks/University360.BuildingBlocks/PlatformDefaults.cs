@@ -36,8 +36,24 @@ public static class PlatformDefaults
             options.AddPolicy("platform", policy =>
             {
                 var allowedOrigins = builder.Configuration.GetSection("Platform:Cors:AllowedOrigins").Get<string[]>();
-                if (allowedOrigins is null || allowedOrigins.Length == 0 || allowedOrigins.Contains("*"))
+                if (allowedOrigins is null || allowedOrigins.Length == 0)
                 {
+                    if (builder.Environment.IsDevelopment())
+                    {
+                        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
+                        return;
+                    }
+
+                    throw new InvalidOperationException("Platform:Cors:AllowedOrigins must be configured outside development.");
+                }
+
+                if (allowedOrigins.Contains("*"))
+                {
+                    if (!builder.Environment.IsDevelopment())
+                    {
+                        throw new InvalidOperationException("Wildcard CORS origins are not allowed outside development.");
+                    }
+
                     policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod();
                     return;
                 }
@@ -52,7 +68,7 @@ public static class PlatformDefaults
             {
                 options.Authority = builder.Configuration["Platform:Jwt:Authority"];
                 options.Audience = builder.Configuration["Platform:Jwt:Audience"];
-                options.RequireHttpsMetadata = false;
+                options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
                 var signingKey = builder.Configuration["Platform:Jwt:SigningKey"];
                 if (!string.IsNullOrWhiteSpace(signingKey))
                 {
@@ -60,8 +76,11 @@ public static class PlatformDefaults
                     {
                         ValidateIssuerSigningKey = true,
                         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
-                        ValidateIssuer = false,
-                        ValidateAudience = false
+                        ValidateIssuer = true,
+                        ValidIssuer = builder.Configuration["Platform:Jwt:Authority"],
+                        ValidateAudience = true,
+                        ValidAudience = builder.Configuration["Platform:Jwt:Audience"],
+                        ClockSkew = TimeSpan.FromMinutes(1)
                     };
                 }
             });
@@ -86,10 +105,22 @@ public static class PlatformDefaults
             };
         });
 
+        var databaseProvider = builder.Configuration["Platform:DatabaseProvider"]
+            ?? (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("sqlserver")) ? "SqlServer" : "MySql");
+        var sqlServerConnection = builder.Configuration.GetConnectionString("sqlserver")
+            ?? "Server=localhost,1433;Database=university360;User Id=sa;Password=Your_password123;TrustServerCertificate=True";
         var mysqlConnection = builder.Configuration.GetConnectionString("mysql")
             ?? "server=localhost;port=3306;database=university360;user=root;password=local";
         builder.Services.AddDbContext<TDbContext>(options =>
-            options.UseMySql(mysqlConnection, new MySqlServerVersion(new Version(8, 4, 0))));
+        {
+            if (string.Equals(databaseProvider, "MySql", StringComparison.OrdinalIgnoreCase))
+            {
+                options.UseMySql(mysqlConnection, new MySqlServerVersion(new Version(8, 4, 0)));
+                return;
+            }
+
+            options.UseSqlServer(sqlServerConnection);
+        });
 
         var redisConnection = builder.Configuration.GetConnectionString("redis");
         if (!string.IsNullOrWhiteSpace(redisConnection))

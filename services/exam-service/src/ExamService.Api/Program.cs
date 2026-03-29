@@ -13,12 +13,13 @@ await SeedExamDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "exam-service", security = "publish-control-enabled" }));
 
-app.MapPost("/api/v1/results", async ([FromBody] PublishResultRequest request, ExamDbContext dbContext) =>
+app.MapPost("/api/v1/results", async (HttpContext httpContext, [FromBody] PublishResultRequest request, ExamDbContext dbContext) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
     var result = new StudentResult
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = httpContext.GetValidatedTenantId(),
         StudentId = request.StudentId,
         SemesterCode = request.SemesterCode,
         Gpa = request.Gpa,
@@ -29,17 +30,19 @@ app.MapPost("/api/v1/results", async ([FromBody] PublishResultRequest request, E
     dbContext.StudentResults.Add(result);
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/results/{result.Id}", result);
-}).RequireRateLimiting("api");
+}).RequirePermissions("results.publish").RequireRateLimiting("api");
 
 app.MapGet("/api/v1/results", async (HttpContext httpContext, ExamDbContext dbContext) =>
-    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetTenantId()).OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
+    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.PublishedAtUtc).ToListAsync())
+    .RequirePermissions("results.view");
 
 app.MapGet("/api/v1/results/{studentId:guid}", async (Guid studentId, HttpContext httpContext, ExamDbContext dbContext) =>
-    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetTenantId() && x.StudentId == studentId).OrderByDescending(x => x.PublishedAtUtc).ToListAsync());
+    await dbContext.StudentResults.Where(x => x.TenantId == httpContext.GetValidatedTenantId() && x.StudentId == studentId).OrderByDescending(x => x.PublishedAtUtc).ToListAsync())
+    .RequirePermissions("results.view");
 
 app.MapGet("/api/v1/results/summary", async (HttpContext httpContext, ExamDbContext dbContext) =>
 {
-    var tenantId = httpContext.GetTenantId();
+    var tenantId = httpContext.GetValidatedTenantId();
     var published = await dbContext.StudentResults.Where(x => x.TenantId == tenantId && x.Published).ToListAsync();
     return Results.Ok(new
     {
@@ -47,7 +50,7 @@ app.MapGet("/api/v1/results/summary", async (HttpContext httpContext, ExamDbCont
         averageGpa = published.Count == 0 ? 0 : Math.Round(published.Average(x => x.Gpa), 2),
         latest = published.OrderByDescending(x => x.PublishedAtUtc).FirstOrDefault()
     });
-});
+}).RequirePermissions("results.view");
 
 app.Run();
 
@@ -98,12 +101,6 @@ public sealed class StudentResult
     public decimal Gpa { get; set; }
     public bool Published { get; set; }
     public DateTimeOffset? PublishedAtUtc { get; set; }
-}
-
-static class TenantExtensions
-{
-    public static string GetTenantId(this HttpContext httpContext) =>
-        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }
 
 public sealed class ExamDbContext(DbContextOptions<ExamDbContext> options) : DbContext(options)

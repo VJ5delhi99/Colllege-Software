@@ -25,7 +25,7 @@ export default function HomePage() {
                 <a href="#courses" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Courses</a>
                 <a href="#campuses" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Campuses</a>
                 <a href="#contact" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Contact</a>
-                <Link href="/rbac" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 font-medium text-white transition hover:bg-white/10">
+                <Link href="/auth" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 font-medium text-white transition hover:bg-white/10">
                   Login
                 </Link>
                 <a href="#apply" className="rounded-full bg-cyan-300 px-4 py-2 font-semibold text-slate-950 transition hover:bg-cyan-200">

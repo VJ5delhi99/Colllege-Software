@@ -13,12 +13,13 @@ await SeedAcademicDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "academic-service", status = "ready" }));
 
-app.MapPost("/api/v1/courses", async ([FromBody] CreateCourseRequest request, AcademicDbContext dbContext) =>
+app.MapPost("/api/v1/courses", async (HttpContext httpContext, [FromBody] CreateCourseRequest request, AcademicDbContext dbContext) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
     var course = new Course
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = httpContext.GetValidatedTenantId(),
         CourseCode = request.CourseCode,
         Title = request.Title,
         Credits = request.Credits,
@@ -32,17 +33,33 @@ app.MapPost("/api/v1/courses", async ([FromBody] CreateCourseRequest request, Ac
     dbContext.Courses.Add(course);
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/courses/{course.Id}", course);
-}).RequireRateLimiting("api");
+}).RequirePermissions("rbac.manage").RequireRateLimiting("api");
 
-app.MapGet("/api/v1/courses", async (HttpContext httpContext, AcademicDbContext dbContext) =>
+app.MapGet("/api/v1/courses", async (HttpContext httpContext, AcademicDbContext dbContext, string? search, string? semesterCode, int page = 1, int pageSize = 20) =>
 {
-    var tenantId = httpContext.GetTenantId();
-    return await dbContext.Courses.Where(x => x.TenantId == tenantId).OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).ToListAsync();
-});
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.Courses.Where(x => x.TenantId == tenantId);
+
+    if (!string.IsNullOrWhiteSpace(search))
+    {
+        query = query.Where(x => x.CourseCode.Contains(search) || x.Title.Contains(search) || x.Room.Contains(search));
+    }
+
+    if (!string.IsNullOrWhiteSpace(semesterCode))
+    {
+        query = query.Where(x => x.SemesterCode == semesterCode);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
+}).RequirePermissions("results.view");
 
 app.MapGet("/api/v1/dashboard/summary", async (HttpContext httpContext, AcademicDbContext dbContext) =>
 {
-    var tenantId = httpContext.GetTenantId();
+    var tenantId = httpContext.GetValidatedTenantId();
     var nextCourse = await dbContext.Courses.Where(x => x.TenantId == tenantId).OrderBy(x => x.DayOfWeek).ThenBy(x => x.StartTime).FirstOrDefaultAsync();
     var totalCourses = await dbContext.Courses.CountAsync(x => x.TenantId == tenantId);
 
@@ -51,7 +68,7 @@ app.MapGet("/api/v1/dashboard/summary", async (HttpContext httpContext, Academic
         totalCourses,
         nextCourse
     });
-});
+}).RequirePermissions("results.view");
 
 app.Run();
 
@@ -133,12 +150,6 @@ public sealed class Course
     public string DayOfWeek { get; set; } = string.Empty;
     public string StartTime { get; set; } = string.Empty;
     public string Room { get; set; } = string.Empty;
-}
-
-static class TenantExtensions
-{
-    public static string GetTenantId(this HttpContext httpContext) =>
-        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }
 
 public sealed class AcademicDbContext(DbContextOptions<AcademicDbContext> options) : DbContext(options)

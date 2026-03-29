@@ -15,12 +15,14 @@ await SeedAttendanceDataAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "attendance-service", mode = "qr-and-ai-ready" }));
 
-app.MapPost("/api/v1/sessions", async (CreateSessionRequest request, AttendanceDbContext dbContext) =>
+app.MapPost("/api/v1/sessions", async (HttpContext httpContext, CreateSessionRequest request, AttendanceDbContext dbContext) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
     var session = new AttendanceSession
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = tenantId,
         CourseCode = request.CourseCode,
         ProfessorId = request.ProfessorId,
         QrCode = $"QR-{Guid.NewGuid():N}"[..12],
@@ -29,13 +31,14 @@ app.MapPost("/api/v1/sessions", async (CreateSessionRequest request, AttendanceD
     };
 
     dbContext.Sessions.Add(session);
+    dbContext.AuditLogs.Add(AttendanceAuditLog.Create(tenantId, "attendance.session.created", session.Id.ToString(), httpContext.User.Identity?.Name ?? "attendance-service", $"Attendance session created for course {session.CourseCode}."));
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/sessions/{session.Id}", session);
 }).RequirePermissions("attendance.mark");
 
-app.MapPost("/api/v1/sessions/{sessionId:guid}/close", async (Guid sessionId, AttendanceDbContext dbContext) =>
+app.MapPost("/api/v1/sessions/{sessionId:guid}/close", async (Guid sessionId, HttpContext httpContext, AttendanceDbContext dbContext) =>
 {
-    var session = await dbContext.Sessions.FirstOrDefaultAsync(x => x.Id == sessionId);
+    var session = await dbContext.Sessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.TenantId == httpContext.GetValidatedTenantId());
     if (session is null)
     {
         return Results.NotFound();
@@ -43,16 +46,31 @@ app.MapPost("/api/v1/sessions/{sessionId:guid}/close", async (Guid sessionId, At
 
     session.Status = "Closed";
     session.ClosedAtUtc = DateTimeOffset.UtcNow;
+    dbContext.AuditLogs.Add(AttendanceAuditLog.Create(session.TenantId, "attendance.session.closed", session.Id.ToString(), httpContext.User.Identity?.Name ?? "attendance-service", $"Attendance session for course {session.CourseCode} was closed."));
     await dbContext.SaveChangesAsync();
     return Results.Ok(session);
 }).RequirePermissions("attendance.mark");
 
-app.MapPost("/api/v1/sessions/{sessionId:guid}/records", async (Guid sessionId, [FromBody] RecordAttendanceRequest request, AttendanceDbContext dbContext) =>
+app.MapPost("/api/v1/sessions/{sessionId:guid}/records", async (Guid sessionId, HttpContext httpContext, [FromBody] RecordAttendanceRequest request, AttendanceDbContext dbContext) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
+    var session = await dbContext.Sessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.TenantId == tenantId && x.Status == "Active");
+    if (session is null)
+    {
+        return Results.BadRequest(new { message = "Attendance session is invalid or closed." });
+    }
+
+    var existing = await dbContext.AttendanceRecords.AnyAsync(x => x.TenantId == tenantId && x.SessionId == sessionId && x.StudentId == request.StudentId);
+    if (existing)
+    {
+        return Results.Conflict(new { message = "Attendance has already been captured for this student." });
+    }
+
     var record = new AttendanceRecord
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = tenantId,
         SessionId = sessionId,
         StudentId = request.StudentId,
         CourseCode = request.CourseCode,
@@ -62,13 +80,15 @@ app.MapPost("/api/v1/sessions/{sessionId:guid}/records", async (Guid sessionId, 
     };
 
     dbContext.AttendanceRecords.Add(record);
+    dbContext.AuditLogs.Add(AttendanceAuditLog.Create(tenantId, "attendance.recorded", record.Id.ToString(), httpContext.User.Identity?.Name ?? "attendance-service", $"Attendance recorded for student {record.StudentId} in course {record.CourseCode} via {record.Method}."));
     await dbContext.SaveChangesAsync();
     return Results.Accepted($"/api/v1/sessions/{sessionId}/records/{record.Id}", record);
 }).RequirePermissions("attendance.mark");
 
-app.MapPost("/api/v1/face-recognition/upload-request", async ([FromBody] FaceUploadRequest request, IObjectStorageService storage) =>
+app.MapPost("/api/v1/face-recognition/upload-request", async (HttpContext httpContext, [FromBody] FaceUploadRequest request, IObjectStorageService storage) =>
 {
-    var objectKey = $"{request.TenantId}/attendance/{request.StudentId}/{Guid.NewGuid():N}.jpg";
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var objectKey = $"{httpContext.GetValidatedTenantId()}/attendance/{request.StudentId}/{Guid.NewGuid():N}.jpg";
     var signedUrl = await storage.CreateUploadUrlAsync("university360-attendance", objectKey, "image/jpeg", TimeSpan.FromMinutes(10));
     return Results.Ok(new { objectKey, upload = signedUrl });
 }).RequirePermissions("attendance.mark");
@@ -79,18 +99,32 @@ app.MapPost("/api/v1/face-recognition/verify", async ([FromBody] FaceRecognition
     return Results.Ok(result);
 }).RequirePermissions("attendance.mark");
 
-app.MapPost("/api/v1/face-recognition/match-and-record", async ([FromBody] FaceAttendanceRequest request, FaceRecognitionClient client, AttendanceDbContext dbContext) =>
+app.MapPost("/api/v1/face-recognition/match-and-record", async (HttpContext httpContext, [FromBody] FaceAttendanceRequest request, FaceRecognitionClient client, AttendanceDbContext dbContext) =>
 {
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
     var verification = await client.VerifyAsync(new FaceRecognitionRequest(request.StudentId, request.ImageReference));
     if (!verification.Matched)
     {
         return Results.BadRequest(verification);
     }
 
+    var session = await dbContext.Sessions.FirstOrDefaultAsync(x => x.Id == request.SessionId && x.TenantId == tenantId && x.Status == "Active");
+    if (session is null)
+    {
+        return Results.BadRequest(new { message = "Attendance session is invalid or closed." });
+    }
+
+    var existing = await dbContext.AttendanceRecords.AnyAsync(x => x.TenantId == tenantId && x.SessionId == request.SessionId && x.StudentId == request.StudentId);
+    if (existing)
+    {
+        return Results.Conflict(new { message = "Attendance has already been captured for this student." });
+    }
+
     var record = new AttendanceRecord
     {
         Id = Guid.NewGuid(),
-        TenantId = request.TenantId,
+        TenantId = tenantId,
         SessionId = request.SessionId,
         StudentId = request.StudentId,
         CourseCode = request.CourseCode,
@@ -100,13 +134,14 @@ app.MapPost("/api/v1/face-recognition/match-and-record", async ([FromBody] FaceA
     };
 
     dbContext.AttendanceRecords.Add(record);
+    dbContext.AuditLogs.Add(AttendanceAuditLog.Create(tenantId, "attendance.face-recorded", record.Id.ToString(), httpContext.User.Identity?.Name ?? "attendance-service", $"Face-recognition attendance recorded for student {record.StudentId} in course {record.CourseCode}."));
     await dbContext.SaveChangesAsync();
     return Results.Accepted($"/api/v1/sessions/{request.SessionId}/records/{record.Id}", new { verification, record });
 }).RequirePermissions("attendance.mark");
 
 app.MapGet("/api/v1/analytics/summary", async (HttpContext httpContext, AttendanceDbContext dbContext) =>
 {
-    var tenantId = httpContext.GetTenantId();
+    var tenantId = httpContext.GetValidatedTenantId();
     var total = await dbContext.AttendanceRecords.CountAsync(x => x.TenantId == tenantId);
     var present = await dbContext.AttendanceRecords.CountAsync(x => x.TenantId == tenantId && x.Status == "Present");
     return Results.Ok(new
@@ -119,7 +154,7 @@ app.MapGet("/api/v1/analytics/summary", async (HttpContext httpContext, Attendan
 
 app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, HttpContext httpContext, AttendanceDbContext dbContext) =>
 {
-    var records = await dbContext.AttendanceRecords.Where(x => x.TenantId == httpContext.GetTenantId() && x.StudentId == studentId).ToListAsync();
+    var records = await dbContext.AttendanceRecords.Where(x => x.TenantId == httpContext.GetValidatedTenantId() && x.StudentId == studentId).ToListAsync();
     var total = records.Count;
     var present = records.Count(x => x.Status == "Present");
     var physics = records.Where(x => x.CourseCode == "PHY201").ToList();
@@ -132,6 +167,17 @@ app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, H
         percentage = total == 0 ? 0 : Math.Round((double)present / total * 100, 2),
         physicsPercentage = physics.Count == 0 ? 0 : Math.Round((double)physicsPresent / physics.Count * 100, 2)
     });
+}).RequirePermissions("attendance.view");
+
+app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, AttendanceDbContext dbContext, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.AuditLogs.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.CreatedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
 }).RequirePermissions("attendance.view");
 
 app.Run();
@@ -165,16 +211,9 @@ public sealed class FaceRecognitionClient(HttpClient httpClient)
 {
     public async Task<FaceRecognitionResult> VerifyAsync(FaceRecognitionRequest request)
     {
-        try
-        {
-            var response = await httpClient.PostAsJsonAsync("/verify", request);
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<FaceRecognitionResult>() ?? new FaceRecognitionResult(false, 0);
-        }
-        catch
-        {
-            return new FaceRecognitionResult(request.StudentId == KnownUsers.StudentId, request.StudentId == KnownUsers.StudentId ? 0.97 : 0.14);
-        }
+        var response = await httpClient.PostAsJsonAsync("/verify", request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<FaceRecognitionResult>() ?? new FaceRecognitionResult(false, 0);
     }
 }
 
@@ -209,20 +248,38 @@ public sealed class AttendanceRecord
     public DateTimeOffset CapturedAtUtc { get; set; }
 }
 
+public sealed class AttendanceAuditLog
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Action { get; set; } = string.Empty;
+    public string EntityId { get; set; } = string.Empty;
+    public string Actor { get; set; } = string.Empty;
+    public string Details { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public static AttendanceAuditLog Create(string tenantId, string action, string entityId, string actor, string details) =>
+        new()
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            Action = action,
+            EntityId = entityId,
+            Actor = actor,
+            Details = details,
+            CreatedAtUtc = DateTimeOffset.UtcNow
+        };
+}
+
 public sealed class AttendanceDbContext(DbContextOptions<AttendanceDbContext> options) : DbContext(options)
 {
     public DbSet<AttendanceSession> Sessions => Set<AttendanceSession>();
     public DbSet<AttendanceRecord> AttendanceRecords => Set<AttendanceRecord>();
+    public DbSet<AttendanceAuditLog> AuditLogs => Set<AttendanceAuditLog>();
 }
 
 public static class KnownUsers
 {
     public static readonly Guid StudentId = Guid.Parse("00000000-0000-0000-0000-000000000123");
     public static readonly Guid ProfessorId = Guid.Parse("00000000-0000-0000-0000-000000000456");
-}
-
-static class TenantExtensions
-{
-    public static string GetTenantId(this HttpContext httpContext) =>
-        httpContext.Request.Headers["X-Tenant-Id"].FirstOrDefault() ?? "default";
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getAdminSession } from "./auth-client";
 import { apiConfig } from "./api-config";
@@ -120,7 +121,7 @@ export default function DashboardPage() {
         }
 
         setUsingCache(false);
-        setError("Live dashboard feeds are temporarily unavailable and no cached snapshot is available yet.");
+        setError("A valid authenticated session is required to load live dashboard feeds. Sign in through the auth page or enable demo mode.");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -177,6 +178,11 @@ export default function DashboardPage() {
             {error ? (
               <div className="mt-6 rounded-[1.5rem] border border-amber-300/20 bg-amber-400/10 px-4 py-4 text-sm leading-6 text-amber-50">
                 {error}
+                <div className="mt-4">
+                  <Link href="/auth" className="inline-flex rounded-full border border-amber-100/20 bg-amber-50/10 px-4 py-2 text-sm font-medium text-white">
+                    Open Sign-In
+                  </Link>
+                </div>
               </div>
             ) : null}
 
@@ -194,6 +200,20 @@ export default function DashboardPage() {
                 <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-100">{loading ? "Checking schedule..." : state.nextCourse}</p>
               </div>
             </div>
+
+              {!error ? (
+                <div className="mt-6 flex flex-wrap gap-3">
+                <Link href="/portal" className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
+                  Open Role Portal
+                </Link>
+                <Link href="/ops" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10">
+                  Open Operations Hub
+                </Link>
+                <Link href="/rbac" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10">
+                  Review Roles
+                </Link>
+                </div>
+              ) : null}
           </div>
         </div>
 

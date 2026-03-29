@@ -1,21 +1,23 @@
 import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/v1/auth/token", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        accessToken: "token",
-        refreshToken: "refresh",
-        userId: "00000000-0000-0000-0000-000000000999",
-        fullName: "Prof. Kavita Menon",
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("university360_admin_session", JSON.stringify({
+      accessToken: "token",
+      refreshToken: "refresh",
+      userId: "00000000-0000-0000-0000-000000000999",
+      fullName: "Prof. Kavita Menon",
+      email: "principal@university360.edu",
+      role: "Principal",
+      tenantId: "default",
+      permissions: ["analytics.view", "rbac.manage", "finance.manage"],
+      user: {
+        id: "00000000-0000-0000-0000-000000000999",
         email: "principal@university360.edu",
         role: "Principal",
-        tenantId: "default",
-        permissions: ["analytics.view", "rbac.manage", "finance.manage"]
-      })
-    });
+        tenantId: "default"
+      }
+    }));
   });
 });
 
@@ -38,7 +40,7 @@ test("dashboard shows live metric cards", async ({ page }) => {
   });
 
   await page.goto("/");
-  await expect(page.getByText("Enterprise command center")).toBeVisible();
+  await expect(page.getByText("Cross-campus operations with one clear surface for action.")).toBeVisible();
   await expect(page.getByText("3")).toBeVisible();
   await expect(page.getByText("92%")).toBeVisible();
 });
