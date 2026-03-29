@@ -9,4 +9,4 @@ COPY mobile-app/ ./
 
 EXPOSE 3001
 
-CMD ["npm", "run", "web", "--", "--host", "0.0.0.0", "--port", "3001"]
+CMD ["npm", "run", "web", "--", "--host", "lan", "--port", "3001", "--non-interactive"]
