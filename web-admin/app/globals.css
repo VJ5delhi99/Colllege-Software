@@ -20,6 +20,7 @@
 }
 
 html {
+  scroll-behavior: smooth;
   background:
     radial-gradient(circle at top left, rgba(46, 197, 255, 0.18), transparent 28%),
     radial-gradient(circle at top right, rgba(255, 211, 108, 0.12), transparent 24%),
@@ -65,4 +66,20 @@ img {
   background-size: 36px 36px;
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 92%);
   pointer-events: none;
+}
+
+.ticker-track {
+  display: inline-block;
+  min-width: 100%;
+  animation: ticker-scroll 30s linear infinite;
+}
+
+@keyframes ticker-scroll {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(-50%);
+  }
 }

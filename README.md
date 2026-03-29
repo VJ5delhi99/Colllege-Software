@@ -32,6 +32,14 @@ University360 is a cloud-native university ERP monorepo scaffold for a distribut
 /.github
 ```
 
+## College Management Blueprint
+
+The repository now includes a dedicated college-management blueprint for the requested university -> college -> campus operating model:
+
+- Architecture and API blueprint: [docs/college-management-platform.md](c:/Users/user/Documents/GitHub/Colllege-Software/docs/college-management-platform.md)
+- SQL Server schema: [docs/database/college-management-schema.sql](c:/Users/user/Documents/GitHub/Colllege-Software/docs/database/college-management-schema.sql)
+- QA test pack: [docs/qa/college-management-test-cases.md](c:/Users/user/Documents/GitHub/Colllege-Software/docs/qa/college-management-test-cases.md)
+
 ## Implemented Features
 
 ### Platform
