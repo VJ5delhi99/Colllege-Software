@@ -1,3 +1,6 @@
+import { getMobileDemoSession } from "./demo-service";
+import { isDemoModeEnabled } from "./demo-mode";
+
 type StudentSession = {
   accessToken: string;
   refreshToken: string;
@@ -26,6 +29,12 @@ export function clearStudentSession() {
 export async function getStudentSession(): Promise<StudentSession> {
   if (cachedSession) {
     return cachedSession;
+  }
+
+  if (isDemoModeEnabled()) {
+    const session = await getMobileDemoSession();
+    cachedSession = session;
+    return session;
   }
 
   throw new Error(`No student session is available. Authenticate through the identity flow and hydrate ${SESSION_KEY}.`);

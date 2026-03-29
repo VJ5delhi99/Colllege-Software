@@ -44,3 +44,8 @@
 - trained face-recognition model deployment plus vector comparison store
 - mature ClickHouse schema/dashboard layer
 - service-specific Helm values, ingress, and external secret-provider integration
+
+## Refactor Progress
+
+- `identity-service` now has an explicit internal split between `Domain`, `Application`, `Infrastructure`, and `Api` folders so startup is reduced to service composition and endpoint wiring.
+- The next architectural step is to repeat this pattern across the remaining high-change services, starting with finance, attendance, and academic.

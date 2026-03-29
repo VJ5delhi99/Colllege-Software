@@ -2,6 +2,8 @@ import { useState } from "react";
 import { SafeAreaView, ScrollView, Text, TextInput, Pressable, View } from "react-native";
 import { getStudentSession } from "./auth-client";
 import { apiConfig } from "./api-config";
+import { getMobileDemoReply } from "./demo-data";
+import { isDemoModeEnabled } from "./demo-mode";
 import { AnimatedSurface } from "../components/AnimatedSurface";
 
 const suggestedPrompts = [
@@ -17,6 +19,7 @@ export default function ChatScreen() {
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const demoMode = isDemoModeEnabled();
 
   const nextId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const endpoint = apiConfig.assistant();
@@ -31,6 +34,11 @@ export default function ChatScreen() {
     setIsTyping(true);
 
     try {
+      if (demoMode) {
+        setMessages((current) => [...current, { id: nextId(), role: "assistant", text: getMobileDemoReply(message) }]);
+        return;
+      }
+
       const session = await getStudentSession();
       const response = await fetch(endpoint, {
         method: "POST",
@@ -70,6 +78,7 @@ export default function ChatScreen() {
       <View style={{ padding: 20, paddingBottom: 8 }}>
         <Text style={{ color: "#cffafe", fontSize: 28, fontWeight: "700" }}>Campus AI</Text>
         <Text style={{ color: "#94a3b8", marginTop: 6 }}>Role-aware assistant for university workflows</Text>
+        {demoMode ? <Text style={{ color: "#67e8f9", marginTop: 6 }}>Demo mode is active. Assistant replies are coming from seeded local data.</Text> : null}
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, gap: 12, paddingBottom: 120 }}>

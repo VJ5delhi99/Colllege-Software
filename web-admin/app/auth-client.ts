@@ -1,5 +1,6 @@
 import { apiConfig } from "./api-config";
 import { demoSession } from "./demo-data";
+import { getDataService } from "./data-service";
 import { isDemoModeEnabled } from "./demo-mode";
 
 export type AuthSession = {
@@ -77,6 +78,28 @@ export async function getAdminSession(): Promise<AuthSession> {
 }
 
 export async function loginAdmin(input: LoginInput): Promise<AuthSession> {
+  if (isDemoModeEnabled()) {
+    const demoUsers = await getDataService().getDemoUsers();
+    const matchedUser = demoUsers.find((user) => user.email.toLowerCase() === input.email.trim().toLowerCase() && user.password === input.password);
+    if (!matchedUser) {
+      throw new Error("Demo login failed. Use one of the seeded demo credentials.");
+    }
+
+    const session = toSession({
+      accessToken: `demo-access-token-${matchedUser.id}`,
+      refreshToken: `demo-refresh-token-${matchedUser.id}`,
+      userId: matchedUser.id,
+      fullName: matchedUser.fullName,
+      permissions: matchedUser.permissions,
+      email: matchedUser.email,
+      role: matchedUser.role,
+      tenantId: matchedUser.tenantId
+    });
+
+    setAdminSession(session);
+    return session;
+  }
+
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -100,6 +123,11 @@ export async function loginAdmin(input: LoginInput): Promise<AuthSession> {
 }
 
 export async function logoutAdmin() {
+  if (isDemoModeEnabled()) {
+    clearAdminSession();
+    return;
+  }
+
   const session = await getAdminSession().catch(() => null);
   if (session) {
     await fetch(`${apiConfig.identity()}/api/v1/auth/logout`, {
@@ -113,6 +141,10 @@ export async function logoutAdmin() {
 }
 
 export async function requestPasswordReset(email: string, tenantId = "default") {
+  if (isDemoModeEnabled()) {
+    return { message: `Demo reset code issued for ${email} in tenant ${tenantId}.` };
+  }
+
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/password-reset/request`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -128,6 +160,14 @@ export async function requestPasswordReset(email: string, tenantId = "default") 
 }
 
 export async function confirmPasswordReset(email: string, code: string, newPassword: string, tenantId = "default") {
+  if (isDemoModeEnabled()) {
+    if (code.trim().length < 4 || newPassword.trim().length < 6) {
+      throw new Error("Demo validation failed. Use a valid code and stronger password.");
+    }
+
+    return { message: `Demo password updated for ${email} in tenant ${tenantId}.` };
+  }
+
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/password-reset/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -143,6 +183,10 @@ export async function confirmPasswordReset(email: string, code: string, newPassw
 }
 
 export async function sendEmailVerification(email: string, tenantId = "default") {
+  if (isDemoModeEnabled()) {
+    return { message: `Demo verification code issued for ${email} in tenant ${tenantId}.` };
+  }
+
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/email-verification/send`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -158,6 +202,14 @@ export async function sendEmailVerification(email: string, tenantId = "default")
 }
 
 export async function confirmEmailVerification(email: string, code: string, tenantId = "default") {
+  if (isDemoModeEnabled()) {
+    if (code.trim().length < 4) {
+      throw new Error("Demo verification code is invalid.");
+    }
+
+    return { message: `Demo email verified for ${email} in tenant ${tenantId}.` };
+  }
+
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/email-verification/confirm`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -4,6 +4,9 @@ import { Bell, CalendarDays, GraduationCap, ScanLine } from "lucide-react-native
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { getStudentSession } from "./auth-client";
 import { apiConfig } from "./api-config";
+import { mobileDemoDashboardState } from "./demo-data";
+import { isDemoModeEnabled } from "./demo-mode";
+import { getMobileDemoDashboard, resetMobileDemoData } from "./demo-service";
 import { AnimatedSurface } from "../components/AnimatedSurface";
 
 type DashboardState = {
@@ -32,8 +35,27 @@ const initialState: DashboardState = {
 
 export default function HomeScreen() {
   const [state, setState] = useState(initialState);
+  const [resetting, setResetting] = useState(false);
+  const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
+    if (demoMode) {
+      getMobileDemoDashboard()
+        .then((dashboard) => {
+          setState({
+            ...dashboard,
+            error: null
+          });
+        })
+        .catch(() => {
+          setState({
+            ...mobileDemoDashboardState,
+            error: "Demo dashboard reset is required."
+          });
+        });
+      return;
+    }
+
     getStudentSession()
       .then((session) =>
         Promise.all([
@@ -65,7 +87,18 @@ export default function HomeScreen() {
           error: "Dashboard services are unavailable. Configure the required Expo environment variables and identity token flow."
         }));
       });
-  }, []);
+  }, [demoMode]);
+
+  async function handleResetDemo() {
+    setResetting(true);
+    await resetMobileDemoData();
+    const dashboard = await getMobileDemoDashboard();
+    setState({
+      ...dashboard,
+      error: null
+    });
+    setResetting(false);
+  }
 
   const tiles = [
     { label: "Attendance", value: state.attendance, icon: ScanLine },
@@ -79,6 +112,16 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         <Text style={{ color: "#c7d2fe", fontSize: 30, fontWeight: "700" }}>University360</Text>
         <Text style={{ color: "#9fb0c7", fontSize: 15 }}>AI-powered student cockpit</Text>
+
+        {demoMode ? (
+          <View style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(34, 211, 238, 0.14)", borderWidth: 1, borderColor: "rgba(34, 211, 238, 0.25)" }}>
+            <Text style={{ color: "#a5f3fc", fontWeight: "700" }}>You are in Demo Mode</Text>
+            <Text style={{ color: "#cffafe", marginTop: 6 }}>Local seeded data is active and resets every 24 hours instead of calling live APIs.</Text>
+            <Pressable onPress={handleResetDemo} disabled={resetting} style={{ marginTop: 12, alignSelf: "flex-start", borderRadius: 999, backgroundColor: "#22d3ee", paddingHorizontal: 14, paddingVertical: 10 }}>
+              <Text style={{ color: "#082f49", fontWeight: "700" }}>{resetting ? "Resetting..." : "Reset Demo Data"}</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {state.error ? (
           <View style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(245, 158, 11, 0.14)", borderWidth: 1, borderColor: "rgba(245, 158, 11, 0.25)" }}>

@@ -56,6 +56,9 @@ services:
       dockerfile: services/identity-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7001:8080"
     depends_on:
@@ -77,6 +80,9 @@ services:
       dockerfile: services/authorization-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7016:8080"
     depends_on:
@@ -94,6 +100,9 @@ services:
       dockerfile: services/academic-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7002:8080"
     depends_on:
@@ -111,6 +120,9 @@ services:
       dockerfile: services/attendance-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7003:8080"
     depends_on:
@@ -140,6 +152,9 @@ services:
       dockerfile: services/communication-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7004:8080"
     depends_on:
@@ -157,6 +172,9 @@ services:
       dockerfile: services/exam-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7005:8080"
     depends_on:
@@ -174,6 +192,9 @@ services:
       dockerfile: services/finance-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7006:8080"
     depends_on:
@@ -191,6 +212,9 @@ services:
       dockerfile: services/ai-assistant-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7007:8080"
     depends_on:
@@ -216,6 +240,9 @@ services:
       dockerfile: services/student-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7008:8080"
     depends_on:
@@ -233,6 +260,9 @@ services:
       dockerfile: services/hostel-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7009:8080"
     depends_on:
@@ -250,6 +280,9 @@ services:
       dockerfile: services/transport-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7010:8080"
     depends_on:
@@ -267,6 +300,9 @@ services:
       dockerfile: services/placement-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7011:8080"
     depends_on:
@@ -284,6 +320,9 @@ services:
       dockerfile: services/library-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7012:8080"
     depends_on:
@@ -301,6 +340,9 @@ services:
       dockerfile: services/lms-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7013:8080"
     depends_on:
@@ -320,6 +362,9 @@ services:
       dockerfile: services/ai-insights-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7014:8080"
     depends_on:
@@ -337,6 +382,9 @@ services:
       dockerfile: services/analytics-processor-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7017:8080"
     depends_on:
@@ -356,6 +404,9 @@ services:
       dockerfile: services/gateway-service/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
     ports:
       - "7015:8080"
     depends_on:

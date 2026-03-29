@@ -9,6 +9,8 @@ import {
   requestPasswordReset,
   sendEmailVerification
 } from "../auth-client";
+import { demoUserAccounts } from "../demo-data";
+import { isDemoModeEnabled } from "../demo-mode";
 
 type AuthMode = "login" | "reset-request" | "reset-confirm" | "verify-send" | "verify-confirm";
 
@@ -21,6 +23,7 @@ const modes: { id: AuthMode; label: string; description: string }[] = [
 ];
 
 export default function AuthPage() {
+  const demoMode = isDemoModeEnabled();
   const [mode, setMode] = useState<AuthMode>("login");
   const [tenantId, setTenantId] = useState("default");
   const [email, setEmail] = useState("");
@@ -84,6 +87,19 @@ export default function AuthPage() {
           <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
             Use your tenant-aware credentials to sign in, recover access, or complete email verification. This page replaces the scaffold-only hidden login behavior.
           </p>
+
+          {demoMode ? (
+            <div className="mt-6 rounded-[1.3rem] border border-cyan-300/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-50">
+              <p className="font-semibold uppercase tracking-[0.18em]">Demo Credentials</p>
+              <div className="mt-3 space-y-2 text-cyan-100/90">
+                {demoUserAccounts.map((user) => (
+                  <p key={user.id}>
+                    {user.role}: {user.email} / {user.password}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-8 grid gap-3">
             {modes.map((item) => (
