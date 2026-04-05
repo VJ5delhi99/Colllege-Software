@@ -444,6 +444,35 @@ public sealed class WorkflowCoverageTests
     }
 
     [Fact]
+    public void FacultyAdministrationSummary_CountsOfficeHoursCoverRequestsAndPlanStages()
+    {
+        var summary = FacultyAdministrationSummary.Create(
+            [
+                new FacultyOfficeHour { Status = "Scheduled" },
+                new FacultyOfficeHour { Status = "Cancelled" }
+            ],
+            [
+                new FacultySubstitutionRequest { Status = "Pending" },
+                new FacultySubstitutionRequest { Status = "Approved" }
+            ],
+            [
+                new FacultyCoursePlan { Status = "Submitted" },
+                new FacultyCoursePlan { Status = "Approved" },
+                new FacultyCoursePlan { Status = "Draft" }
+            ],
+            [
+                new AdvisingNote { FollowUpStatus = "Open" },
+                new AdvisingNote { FollowUpStatus = "Closed" }
+            ]);
+
+        summary.OfficeHoursScheduled.Should().Be(1);
+        summary.PendingClassCoverRequests.Should().Be(1);
+        summary.CoursePlansAwaitingApproval.Should().Be(1);
+        summary.ApprovedCoursePlans.Should().Be(1);
+        summary.AdviseeFollowUpsOpen.Should().Be(1);
+    }
+
+    [Fact]
     public void TeacherAttendanceSummary_FlagsLowAttendanceCourses()
     {
         var sessionId = Guid.NewGuid();

@@ -57,11 +57,45 @@ type AssessmentPublicationItem = {
   updatedAtUtc: string;
 };
 
+type OfficeHourItem = {
+  id: string;
+  courseCode: string;
+  dayOfWeek: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  deliveryMode: string;
+  status: string;
+};
+
+type ClassCoverRequestItem = {
+  id: string;
+  courseCode: string;
+  classDateUtc: string;
+  reason: string;
+  requestedCoverTeacher: string;
+  status: string;
+  adminNote: string;
+};
+
+type CoursePlanItem = {
+  id: string;
+  courseCode: string;
+  title: string;
+  coverage: string;
+  status: string;
+  reviewNote: string;
+  updatedAtUtc: string;
+};
+
 type TeacherState = {
   totalCourses: number;
   teachingLoad: number;
   nextCourseTitle: string;
   nextCourseMeta: string;
+  officeHoursScheduled: number;
+  pendingClassCoverRequests: number;
+  coursePlansAwaitingApproval: number;
   activeSessions: number;
   lowAttendanceCourses: number;
   learningMaterials: number;
@@ -74,6 +108,9 @@ type TeacherState = {
   contentDrafts: ContentDraftItem[];
   publishingQueue: AssessmentPublicationItem[];
   advisingNotes: AdvisingNoteItem[];
+  officeHours: OfficeHourItem[];
+  classCoverRequests: ClassCoverRequestItem[];
+  coursePlans: CoursePlanItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
   error: string | null;
 };
@@ -83,6 +120,9 @@ const demoState: TeacherState = {
   teachingLoad: 3,
   nextCourseTitle: "Distributed Systems",
   nextCourseMeta: "B-204 - Monday - 02:00 PM",
+  officeHoursScheduled: 2,
+  pendingClassCoverRequests: 1,
+  coursePlansAwaitingApproval: 1,
   activeSessions: 1,
   lowAttendanceCourses: 1,
   learningMaterials: 2,
@@ -143,6 +183,18 @@ const demoState: TeacherState = {
       createdAtUtc: "2026-04-04T12:00:00Z"
     }
   ],
+  officeHours: [
+    { id: "office-1", courseCode: "CSE401", dayOfWeek: "Tuesday", startTime: "03:30 PM", endTime: "04:30 PM", location: "B-204", deliveryMode: "In Person", status: "Scheduled" },
+    { id: "office-2", courseCode: "PHY201", dayOfWeek: "Thursday", startTime: "11:00 AM", endTime: "12:00 PM", location: "Faculty Room 3", deliveryMode: "Online", status: "Scheduled" }
+  ],
+  classCoverRequests: [
+    { id: "cover-1", courseCode: "MTH301", classDateUtc: "2026-04-07T09:00:00Z", reason: "Conference presentation at the university research colloquium.", requestedCoverTeacher: "Dr. Neha Kapoor", status: "Pending", adminNote: "" },
+    { id: "cover-2", courseCode: "PHY201", classDateUtc: "2026-04-02T09:00:00Z", reason: "Medical appointment overlap.", requestedCoverTeacher: "Dr. Raj Malhotra", status: "Approved", adminNote: "Class cover confirmed with the department office." }
+  ],
+  coursePlans: [
+    { id: "plan-1", courseCode: "CSE401", title: "Unit 3 distributed storage plan", coverage: "Replication patterns, leader election, and operational trade-offs.", status: "Submitted", reviewNote: "Waiting for department review.", updatedAtUtc: "2026-04-03T10:00:00Z" },
+    { id: "plan-2", courseCode: "PHY201", title: "Lab cycle moderation plan", coverage: "Attendance recovery support, practical demonstration flow, and quiz alignment.", status: "Approved", reviewNote: "Approved for this cycle.", updatedAtUtc: "2026-04-02T10:00:00Z" }
+  ],
   notifications: [
     {
       id: "teacher-note-1",
@@ -164,6 +216,14 @@ function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(value));
 }
 
+function getAdminCounts(classCoverRequests: ClassCoverRequestItem[], coursePlans: CoursePlanItem[], officeHours: OfficeHourItem[]) {
+  return {
+    officeHoursScheduled: officeHours.filter((item) => item.status !== "Cancelled").length,
+    pendingClassCoverRequests: classCoverRequests.filter((item) => item.status === "Pending").length,
+    coursePlansAwaitingApproval: coursePlans.filter((item) => item.status === "Submitted" || item.status === "Review").length
+  };
+}
+
 export default function TeacherMobilePage() {
   const [state, setState] = useState<TeacherState>(demoState);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -181,7 +241,7 @@ export default function TeacherMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse] = await Promise.all([
+        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse, officeHoursResponse, classCoverResponse, coursePlansResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
@@ -190,14 +250,17 @@ export default function TeacherMobilePage() {
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=5`, { headers }),
           fetch(`${apiConfig.lms()}/api/v1/teachers/${session.user.id}/content-drafts`, { headers }),
-          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue`, { headers })
+          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/office-hours`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/substitution-requests`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/course-plans`, { headers })
         ]);
 
-        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok) {
-          throw new Error("Teacher mobile workspace is unavailable.");
+        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok || !officeHoursResponse.ok || !classCoverResponse.ok || !coursePlansResponse.ok) {
+          throw new Error("Teacher mobile page is unavailable.");
         }
 
-        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions, drafts, publishing] = await Promise.all([
+        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions, drafts, publishing, officeHours, classCoverRequests, coursePlans] = await Promise.all([
           summaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
@@ -206,7 +269,10 @@ export default function TeacherMobilePage() {
           advisingResponse.json(),
           sessionsResponse.json(),
           draftsResponse.json(),
-          publishingResponse.json()
+          publishingResponse.json(),
+          officeHoursResponse.json(),
+          classCoverResponse.json(),
+          coursePlansResponse.json()
         ]);
         const courseCodes = Array.from(new Set(((coursesPayload?.items ?? []) as Array<{ courseCode: string }>).map((item) => item.courseCode)));
         const lmsResponse = await fetch(
@@ -222,6 +288,9 @@ export default function TeacherMobilePage() {
           nextCourseMeta: summary?.nextCourse
             ? `${summary.nextCourse.room} - ${summary.nextCourse.dayOfWeek} - ${summary.nextCourse.startTime}`
             : "No course is queued right now.",
+          officeHoursScheduled: summary?.officeHoursScheduled ?? 0,
+          pendingClassCoverRequests: summary?.pendingClassCoverRequests ?? 0,
+          coursePlansAwaitingApproval: summary?.coursePlansAwaitingApproval ?? 0,
           activeSessions: attendance?.activeSessions ?? 0,
           lowAttendanceCourses: attendance?.lowAttendanceCourses ?? 0,
           learningMaterials: lms?.materials ?? 0,
@@ -234,6 +303,9 @@ export default function TeacherMobilePage() {
           contentDrafts: drafts?.items ?? [],
           publishingQueue: publishing?.items ?? [],
           advisingNotes: advising?.items ?? [],
+          officeHours: officeHours?.items ?? [],
+          classCoverRequests: classCoverRequests?.items ?? [],
+          coursePlans: coursePlans?.items ?? [],
           notifications: notifications?.items ?? [],
           error: null
         });
@@ -637,6 +709,174 @@ export default function TeacherMobilePage() {
     }
   }
 
+  async function createOfficeHour(courseCode: string, dayOfWeek: string, startTime: string, endTime: string, location: string, deliveryMode: string) {
+    setBusyId(`office-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const nextOfficeHour: OfficeHourItem = {
+          id: `office-${Date.now()}`,
+          courseCode,
+          dayOfWeek,
+          startTime,
+          endTime,
+          location,
+          deliveryMode,
+          status: "Scheduled"
+        };
+        const nextOfficeHours = [nextOfficeHour, ...state.officeHours].slice(0, 4);
+        const counts = getAdminCounts(state.classCoverRequests, state.coursePlans, nextOfficeHours);
+        setState((current) => ({ ...current, officeHours: nextOfficeHours, officeHoursScheduled: counts.officeHoursScheduled, error: null }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/office-hours`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          dayOfWeek,
+          startTime,
+          endTime,
+          location,
+          deliveryMode,
+          status: "Scheduled"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save office hour.");
+      }
+
+      const payload = (await response.json()) as OfficeHourItem;
+      setState((current) => {
+        const nextOfficeHours = [payload, ...current.officeHours].slice(0, 4);
+        const counts = getAdminCounts(current.classCoverRequests, current.coursePlans, nextOfficeHours);
+        return { ...current, officeHours: nextOfficeHours, officeHoursScheduled: counts.officeHoursScheduled, error: null };
+      });
+    } catch {
+      setState((current) => ({ ...current, error: "Teacher office-hour setup is unavailable right now." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function createClassCoverRequest(courseCode: string, reason: string, requestedCoverTeacher: string) {
+    setBusyId(`cover-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const nextRequest: ClassCoverRequestItem = {
+          id: `cover-${Date.now()}`,
+          courseCode,
+          classDateUtc: new Date(Date.now() + 86400000).toISOString(),
+          reason,
+          requestedCoverTeacher,
+          status: "Pending",
+          adminNote: ""
+        };
+        const nextRequests = [nextRequest, ...state.classCoverRequests].slice(0, 4);
+        const counts = getAdminCounts(nextRequests, state.coursePlans, state.officeHours);
+        setState((current) => ({ ...current, classCoverRequests: nextRequests, pendingClassCoverRequests: counts.pendingClassCoverRequests, error: null }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/substitution-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          classDateUtc: new Date(Date.now() + 86400000).toISOString(),
+          reason,
+          requestedCoverTeacher,
+          status: "Pending"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to request class cover.");
+      }
+
+      const payload = (await response.json()) as ClassCoverRequestItem;
+      setState((current) => {
+        const nextRequests = [payload, ...current.classCoverRequests].slice(0, 4);
+        const counts = getAdminCounts(nextRequests, current.coursePlans, current.officeHours);
+        return { ...current, classCoverRequests: nextRequests, pendingClassCoverRequests: counts.pendingClassCoverRequests, error: null };
+      });
+    } catch {
+      setState((current) => ({ ...current, error: "Teacher class-cover requests are unavailable right now." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function createCoursePlan(courseCode: string, title: string, coverage: string) {
+    setBusyId(`plan-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const nextPlan: CoursePlanItem = {
+          id: `plan-${Date.now()}`,
+          courseCode,
+          title,
+          coverage,
+          status: "Submitted",
+          reviewNote: "Waiting for department review.",
+          updatedAtUtc: new Date().toISOString()
+        };
+        const nextPlans = [nextPlan, ...state.coursePlans].slice(0, 4);
+        const counts = getAdminCounts(state.classCoverRequests, nextPlans, state.officeHours);
+        setState((current) => ({ ...current, coursePlans: nextPlans, coursePlansAwaitingApproval: counts.coursePlansAwaitingApproval, error: null }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/course-plans`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          title,
+          coverage,
+          status: "Submitted",
+          reviewNote: "Waiting for department review."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save course plan.");
+      }
+
+      const payload = (await response.json()) as CoursePlanItem;
+      setState((current) => {
+        const nextPlans = [payload, ...current.coursePlans].slice(0, 4);
+        const counts = getAdminCounts(current.classCoverRequests, nextPlans, current.officeHours);
+        return { ...current, coursePlans: nextPlans, coursePlansAwaitingApproval: counts.coursePlansAwaitingApproval, error: null };
+      });
+    } catch {
+      setState((current) => ({ ...current, error: "Teacher course-plan setup is unavailable right now." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#07111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -706,6 +946,67 @@ export default function TeacherMobilePage() {
             >
               <Text style={{ color: "#f5d0fe", fontWeight: "700", textAlign: "center" }}>{busyId === "Assessment Brief-PHY201" ? "Saving..." : "Assessment Draft"}</Text>
             </Pressable>
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 250, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(16, 185, 129, 0.12)", borderWidth: 1, borderColor: "rgba(52, 211, 153, 0.18)" }}
+        >
+          <Text style={{ color: "#86efac", fontSize: 13 }}>Teaching Admin</Text>
+          <Text style={{ color: "#ecfdf5", fontSize: 22, fontWeight: "700", marginTop: 8 }}>
+            {state.officeHoursScheduled} office hours | {state.pendingClassCoverRequests} cover requests
+          </Text>
+          <Text style={{ color: "#d1fae5", marginTop: 10 }}>
+            Keep student meetings, class cover, and plan approvals moving from the same faculty page.
+          </Text>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Pressable
+              onPress={() => createOfficeHour("CSE401", "Friday", "01:30 PM", "02:15 PM", "B-204", "In Person")}
+              disabled={busyId === "office-CSE401"}
+              style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(52, 211, 153, 0.18)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === "office-CSE401" ? 0.5 : 1 }}
+            >
+              <Text style={{ color: "#d1fae5", fontWeight: "700", textAlign: "center" }}>{busyId === "office-CSE401" ? "Saving..." : "Office Hour"}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => createClassCoverRequest("MTH301", "Conference presentation at the university research colloquium.", "Dr. Neha Kapoor")}
+              disabled={busyId === "cover-MTH301"}
+              style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(250, 204, 21, 0.18)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === "cover-MTH301" ? 0.5 : 1 }}
+            >
+              <Text style={{ color: "#fef3c7", fontWeight: "700", textAlign: "center" }}>{busyId === "cover-MTH301" ? "Saving..." : "Class Cover"}</Text>
+            </Pressable>
+          </View>
+          <Pressable
+            onPress={() => createCoursePlan("CSE401", "Unit 4 release plan", "Consistency models, recovery drills, and quiz checkpoints.")}
+            disabled={busyId === "plan-CSE401"}
+            style={{ marginTop: 12, borderRadius: 14, backgroundColor: "rgba(217, 70, 239, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === "plan-CSE401" ? 0.5 : 1 }}
+          >
+            <Text style={{ color: "#f5d0fe", fontWeight: "700", textAlign: "center" }}>{busyId === "plan-CSE401" ? "Saving..." : "Submit Course Plan"}</Text>
+          </Pressable>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.officeHours.slice(0, 2).map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.courseCode}</Text>
+                <Text style={{ color: "#bbf7d0", marginTop: 6 }}>{item.dayOfWeek} | {item.startTime} - {item.endTime}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.location} | {item.deliveryMode}</Text>
+              </View>
+            ))}
+            {state.classCoverRequests.slice(0, 1).map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.courseCode} cover</Text>
+                <Text style={{ color: "#fde68a", marginTop: 6 }}>{item.status} | {formatTimestamp(item.classDateUtc)}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.reason}</Text>
+              </View>
+            ))}
+            {state.coursePlans.slice(0, 1).map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#f5d0fe", marginTop: 6 }}>{item.courseCode} | {item.status}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.coverage}</Text>
+              </View>
+            ))}
           </View>
         </AnimatedSurface>
 
