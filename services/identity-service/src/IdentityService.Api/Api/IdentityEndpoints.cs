@@ -14,6 +14,17 @@ public static class IdentityEndpoints
     {
         app.MapGet("/", () => Results.Ok(new { service = "identity-service", flows = new[] { "jwt", "refresh-token", "authorization-code", "passwordless", "mfa", "federation" } }));
         app.MapGet("/api/v1/auth/providers", async (IdentityDbContext db) => Results.Ok(await db.FederatedProviders.OrderBy(x => x.Name).ToListAsync()));
+        app.MapGet("/api/v1/auth/federation/readiness", async (IdentityDbContext db, FederationReadinessCatalog readiness) =>
+        {
+            var providers = await db.FederatedProviders.OrderBy(x => x.Name).ToListAsync();
+            var items = providers.Select(readiness.Describe).ToList();
+            return Results.Ok(new
+            {
+                total = items.Count,
+                ready = items.Count(item => item.Status == "Ready"),
+                items
+            });
+        });
 
         app.MapGet("/oauth2/authorize", async (HttpContext httpContext, [FromQuery(Name = "client_id")] string clientId, [FromQuery(Name = "redirect_uri")] string redirectUri, [FromQuery] string scope, [FromQuery] string state, [FromQuery] string tenantId, IdentityDbContext db, OidcClientCatalog clients) =>
         {
@@ -64,11 +75,66 @@ public static class IdentityEndpoints
             return provider is null ? Results.NotFound(new { message = "Provider not found" }) : Results.Ok(new { provider = provider.Name, authorizationUrl = $"{provider.AuthorizationEndpoint}?client_id={Uri.EscapeDataString(provider.ClientId)}&redirect_uri={Uri.EscapeDataString(req.RedirectUri)}&scope=openid%20profile%20email&state={Uri.EscapeDataString(req.State)}" });
         });
 
-        app.MapPost("/api/v1/auth/federation/callback", async ([FromBody] FederatedCallbackRequest req, IdentityDbContext db) =>
+        app.MapPost("/api/v1/auth/federation/callback", async ([FromBody] FederatedCallbackRequest req, IdentityDbContext db, IConfiguration cfg, AuthorizationCatalogClient authz, FederationReadinessCatalog readiness) =>
         {
             var provider = await db.FederatedProviders.FirstOrDefaultAsync(x => x.Name == req.Provider && x.Enabled);
             if (provider is null) return Results.NotFound(new { message = "Provider not found" });
-            return Results.StatusCode(StatusCodes.Status501NotImplemented);
+
+            var providerReadiness = readiness.Describe(provider);
+            if (!string.Equals(providerReadiness.Status, "Ready", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new { message = $"{req.Provider} federation is not rollout-ready yet.", status = providerReadiness.Status });
+            }
+
+            if (string.IsNullOrWhiteSpace(req.Email))
+            {
+                return Results.BadRequest(new { message = "Federated callback must include a verified email address." });
+            }
+
+            var normalizedEmail = req.Email.Trim();
+            var user = await db.Users.FirstOrDefaultAsync(x => x.Email == normalizedEmail && x.TenantId == req.TenantId);
+            if (user is null)
+            {
+                user = new PlatformUser
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = req.TenantId,
+                    Email = normalizedEmail,
+                    FullName = string.IsNullOrWhiteSpace(req.DisplayName) ? normalizedEmail : req.DisplayName.Trim(),
+                    Role = string.IsNullOrWhiteSpace(req.Role) ? "Student" : req.Role.Trim(),
+                    PasswordlessEnabled = true,
+                    MfaEnabled = false,
+                    EmailVerified = true,
+                    PasswordHash = PasswordUtility.HashPassword(Guid.NewGuid().ToString("N")),
+                    TotpSecret = TotpUtility.GenerateSecret()
+                };
+                db.Users.Add(user);
+            }
+            else
+            {
+                user.EmailVerified = true;
+                if (string.IsNullOrWhiteSpace(user.FullName) && !string.IsNullOrWhiteSpace(req.DisplayName))
+                {
+                    user.FullName = req.DisplayName.Trim();
+                }
+            }
+
+            var resolution = await authz.ResolvePermissionsAsync(user, req.TenantId);
+            var session = IdentitySessionFactory.CreateSession(user);
+            db.Sessions.Add(session);
+            db.AuditLogs.Add(IdentityAuditLog.Create(
+                req.TenantId,
+                "identity.federation.sign-in.succeeded",
+                session.Id.ToString(),
+                normalizedEmail,
+                $"Federated sign-in completed with {req.Provider} for subject {req.ExternalSubject}."));
+            await db.SaveChangesAsync();
+            return Results.Ok(new
+            {
+                provider = req.Provider,
+                externalSubject = req.ExternalSubject,
+                token = TokenFactory.CreateTokenResponse(user, resolution, session, cfg)
+            });
         });
 
         app.MapPost("/api/v1/users", async ([FromBody] RegisterUserRequest req, IdentityDbContext db) =>

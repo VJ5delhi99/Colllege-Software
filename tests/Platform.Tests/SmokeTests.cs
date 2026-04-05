@@ -55,9 +55,12 @@ public sealed class SmokeTests
                 ["Platform:ObjectStorage:SigningKey"] = "production-object-storage-key",
                 ["Platform:Cors:AllowedOrigins:0"] = "https://admin.university360.edu",
                 ["ConnectionStrings:sqlserver"] = "Server=tcp:prod.database.windows.net;Initial Catalog=university360;User Id=sa;Password=ComplexPassword123!;",
+                ["Payments:Stripe:Enabled"] = "true",
                 ["Payments:Stripe:PublicKey"] = "pk_test_stripe",
                 ["Payments:Stripe:SecretKey"] = "sk_test_stripe",
-                ["Payments:Stripe:WebhookSecret"] = "development-webhook-secret"
+                ["Payments:Stripe:WebhookSecret"] = "development-webhook-secret",
+                ["Payments:Stripe:MerchantName"] = "University360",
+                ["Payments:Stripe:SupportedCurrencies"] = "INR,USD"
             })
             .Build();
         var services = new ServiceCollection();
@@ -67,6 +70,29 @@ public sealed class SmokeTests
 
         action.Should().Throw<InvalidOperationException>()
             .WithMessage("*payment configuration*");
+    }
+
+    [Fact]
+    public void ProductionSecretsValidationRequiresEnabledFederationSecrets()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Platform:Jwt:SigningKey"] = "production-super-secret-key",
+                ["Platform:ObjectStorage:SigningKey"] = "production-object-storage-key",
+                ["Platform:Cors:AllowedOrigins:0"] = "https://admin.university360.edu",
+                ["ConnectionStrings:sqlserver"] = "Server=tcp:prod.database.windows.net;Initial Catalog=university360;User Id=sa;Password=ComplexPassword123!;",
+                ["Federation:Providers:Google:Enabled"] = "true",
+                ["Federation:Providers:Google:CallbackUrl"] = "https://admin.university360.edu/auth/callback"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        var environment = new FakeHostEnvironment { EnvironmentName = "Production" };
+
+        var action = () => services.AddProductionSecretsValidation(configuration, environment);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*federation secret*");
     }
 
     private sealed class FakeHostEnvironment : Microsoft.Extensions.Hosting.IHostEnvironment

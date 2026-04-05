@@ -14,6 +14,10 @@ type AdminState = {
   campusCount: number;
   programCount: number;
   inquiryCount: number;
+  staleAdmissions: number;
+  overdueReminders: number;
+  federationReady: number;
+  paymentReady: number;
 };
 
 const demoState: AdminState = {
@@ -23,7 +27,11 @@ const demoState: AdminState = {
   announcementCount: 6,
   campusCount: 3,
   programCount: 6,
-  inquiryCount: 12
+  inquiryCount: 12,
+  staleAdmissions: 2,
+  overdueReminders: 1,
+  federationReady: 1,
+  paymentReady: 2
 };
 
 function formatMoney(value: number) {
@@ -57,24 +65,28 @@ export default function AdminPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [usersResponse, financeResponse, communicationResponse, identityAuditResponse, catalogResponse, inquirySummaryResponse] = await Promise.all([
+        const [usersResponse, financeResponse, paymentReadinessResponse, communicationResponse, identityAuditResponse, federationReadinessResponse, catalogResponse, inquirySummaryResponse] = await Promise.all([
           fetch(`${apiConfig.identity()}/api/v1/users`, { headers }),
           fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers }),
+          fetch(`${apiConfig.finance()}/api/v1/payment-providers/readiness`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/dashboard/summary`, { headers }),
           fetch(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=20`, { headers }),
+          fetch(`${apiConfig.identity()}/api/v1/auth/federation/readiness`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers })
         ]);
 
-        if (!usersResponse.ok || !financeResponse.ok || !communicationResponse.ok || !identityAuditResponse.ok || !catalogResponse.ok || !inquirySummaryResponse.ok) {
+        if (!usersResponse.ok || !financeResponse.ok || !paymentReadinessResponse.ok || !communicationResponse.ok || !identityAuditResponse.ok || !federationReadinessResponse.ok || !catalogResponse.ok || !inquirySummaryResponse.ok) {
           throw new Error("Unable to load the admin workspace.");
         }
 
-        const [usersPayload, financePayload, communicationPayload, identityAuditPayload, catalogPayload, inquirySummaryPayload] = await Promise.all([
+        const [usersPayload, financePayload, paymentReadinessPayload, communicationPayload, identityAuditPayload, federationReadinessPayload, catalogPayload, inquirySummaryPayload] = await Promise.all([
           usersResponse.json(),
           financeResponse.json(),
+          paymentReadinessResponse.json(),
           communicationResponse.json(),
           identityAuditResponse.json(),
+          federationReadinessResponse.json(),
           catalogResponse.json(),
           inquirySummaryResponse.json()
         ]);
@@ -87,7 +99,11 @@ export default function AdminPage() {
             announcementCount: communicationPayload?.total ?? 0,
             campusCount: catalogPayload?.campuses ?? 0,
             programCount: catalogPayload?.programs ?? 0,
-            inquiryCount: inquirySummaryPayload?.total ?? 0
+            inquiryCount: inquirySummaryPayload?.total ?? 0,
+            staleAdmissions: inquirySummaryPayload?.automation?.staleApplications ?? 0,
+            overdueReminders: inquirySummaryPayload?.automation?.overdueReminders ?? 0,
+            federationReady: federationReadinessPayload?.ready ?? 0,
+            paymentReady: paymentReadinessPayload?.ready ?? 0
           });
           setError(null);
           setLoading(false);
@@ -179,9 +195,22 @@ export default function AdminPage() {
             <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Public and internal communication stays visible beside controls.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Control direction</p>
-            <p className="mt-4 text-xl font-semibold text-white">From homepage signal to ops follow-up</p>
-            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">The product now expresses a fuller journey instead of isolated role pages.</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Admissions automation</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : `${state.staleAdmissions} stale | ${state.overdueReminders} overdue`}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Automation now flags aging applications and overdue reminder queues before they slip out of ops view.</p>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-5 md:grid-cols-2">
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Federation readiness</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.federationReady}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Configured identity providers that are ready for real callback-based sign-in instead of placeholder setup.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Payment rollout readiness</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.paymentReady}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Payment providers that are enabled and configured strongly enough for live checkout rollout.</p>
           </article>
         </section>
       </div>

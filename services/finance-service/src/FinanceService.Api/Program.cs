@@ -17,6 +17,14 @@ await SeedFinanceDataAsync(app);
 app.MapGet("/", () => Results.Ok(new { service = "finance-service", gateways = new[] { "Razorpay", "Stripe", "PayPal" } }));
 app.MapGet("/api/v1/payment-providers", (PaymentGatewayCatalog gateways) => Results.Ok(gateways.GetProviders()))
     .RequirePermissions("finance.manage");
+app.MapGet("/api/v1/payment-providers/readiness", (PaymentGatewayCatalog gateways) =>
+        Results.Ok(new
+        {
+            total = gateways.GetProviders().Count,
+            ready = gateways.GetProviders().Count(provider => provider.IsReadyForCheckout),
+            items = gateways.GetProviders()
+        }))
+    .RequirePermissions("finance.manage");
 
 app.MapPost("/api/v1/payments", async (HttpContext httpContext, [FromBody] RecordPaymentRequest request, FinanceDbContext dbContext) =>
 {
@@ -56,6 +64,21 @@ app.MapPost("/api/v1/payment-sessions", async (HttpContext httpContext, [FromBod
     if (providerConfig is null)
     {
         return Results.BadRequest(new { message = "Unsupported payment provider" });
+    }
+
+    if (!providerConfig.Enabled)
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} is not enabled for checkout rollout." });
+    }
+
+    if (!providerConfig.SupportedCurrencies.Contains(request.Currency, StringComparer.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} does not support {request.Currency} in the current rollout." });
+    }
+
+    if (!providerConfig.IsReadyForCheckout)
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} checkout is not configured for production-style use yet." });
     }
 
     var session = new PaymentSession
@@ -413,10 +436,14 @@ public sealed class PaymentGatewayCatalog(IConfiguration configuration)
 
         return new PaymentProviderConfiguration(
             providerName,
+            bool.TryParse(configuration[$"Payments:{providerName}:Enabled"], out var enabled) && enabled,
             configuration[$"Payments:{providerName}:PublicKey"] ?? $"pk_test_{providerName.ToLowerInvariant()}",
             configuration[$"Payments:{providerName}:SecretKey"] ?? $"sk_test_{providerName.ToLowerInvariant()}",
             configuration[$"Payments:{providerName}:WebhookSecret"] ?? "development-webhook-secret",
-            configuration[$"Payments:{providerName}:CheckoutBaseUrl"] ?? "https://payments.university360.local");
+            configuration[$"Payments:{providerName}:CheckoutBaseUrl"] ?? "https://payments.university360.local",
+            configuration[$"Payments:{providerName}:MerchantName"] ?? "University360",
+            SplitList(configuration[$"Payments:{providerName}:SupportedCurrencies"], "INR"),
+            configuration[$"Payments:{providerName}:RolloutStage"] ?? "Sandbox");
     }
 
     public bool VerifyWebhook(string providerName, string payloadJson, string signature)
@@ -431,9 +458,31 @@ public sealed class PaymentGatewayCatalog(IConfiguration configuration)
         var computed = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes(payloadJson))).ToLowerInvariant();
         return string.Equals(computed, signature, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static string[] SplitList(string? value, string fallback) =>
+        (string.IsNullOrWhiteSpace(value) ? fallback : value)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
 
-public sealed record PaymentProviderConfiguration(string Name, string PublicKey, string SecretKey, string WebhookSecret, string CheckoutBaseUrl);
+public sealed record PaymentProviderConfiguration(
+    string Name,
+    bool Enabled,
+    string PublicKey,
+    string SecretKey,
+    string WebhookSecret,
+    string CheckoutBaseUrl,
+    string MerchantName,
+    IReadOnlyCollection<string> SupportedCurrencies,
+    string RolloutStage)
+{
+    public bool IsReadyForCheckout =>
+        Enabled &&
+        !string.IsNullOrWhiteSpace(PublicKey) &&
+        !string.IsNullOrWhiteSpace(SecretKey) &&
+        !string.IsNullOrWhiteSpace(WebhookSecret) &&
+        !string.IsNullOrWhiteSpace(CheckoutBaseUrl) &&
+        SupportedCurrencies.Count > 0;
+}
 
 public sealed class PaymentReconciliationWorker(IServiceProvider serviceProvider, ILogger<PaymentReconciliationWorker> logger) : BackgroundService
 {

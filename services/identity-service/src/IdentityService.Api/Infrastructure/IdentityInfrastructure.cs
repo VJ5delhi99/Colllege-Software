@@ -28,6 +28,66 @@ public sealed class OidcClientCatalog
 
 public sealed record OidcClient(string ClientId, string Name, string RedirectUri);
 
+public sealed class FederationReadinessCatalog(IConfiguration configuration)
+{
+    public FederationProviderReadiness Describe(FederatedAuthProvider provider)
+    {
+        var prefix = $"Federation:Providers:{provider.Name}:";
+        var clientSecret = configuration[$"{prefix}ClientSecret"];
+        var callbackUrl = configuration[$"{prefix}CallbackUrl"];
+        var enabledSetting = configuration[$"{prefix}Enabled"];
+        var enabled = string.IsNullOrWhiteSpace(enabledSetting)
+            ? provider.Enabled
+            : bool.TryParse(enabledSetting, out var parsedEnabled) && parsedEnabled;
+
+        return new FederationProviderReadiness(
+            provider.Name,
+            enabled,
+            !string.IsNullOrWhiteSpace(provider.ClientId),
+            !string.IsNullOrWhiteSpace(clientSecret),
+            !string.IsNullOrWhiteSpace(provider.AuthorizationEndpoint),
+            !string.IsNullOrWhiteSpace(provider.TokenEndpoint),
+            !string.IsNullOrWhiteSpace(callbackUrl),
+            DetermineStatus(enabled, provider, clientSecret, callbackUrl),
+            callbackUrl);
+    }
+
+    private static string DetermineStatus(FederatedAuthProvider provider, string? clientSecret, string? callbackUrl)
+    {
+        if (string.IsNullOrWhiteSpace(provider.ClientId) ||
+            string.IsNullOrWhiteSpace(provider.AuthorizationEndpoint) ||
+            string.IsNullOrWhiteSpace(provider.TokenEndpoint) ||
+            string.IsNullOrWhiteSpace(clientSecret) ||
+            string.IsNullOrWhiteSpace(callbackUrl))
+        {
+            return "Configuration Required";
+        }
+
+        return "Ready";
+    }
+
+    private static string DetermineStatus(bool enabled, FederatedAuthProvider provider, string? clientSecret, string? callbackUrl)
+    {
+        if (!enabled)
+        {
+            return "Disabled";
+        }
+
+        return DetermineStatus(provider, clientSecret, callbackUrl);
+    }
+}
+
+public sealed record FederationProviderReadiness(
+    string Name,
+    bool Enabled,
+    bool ClientIdConfigured,
+    bool ClientSecretConfigured,
+    bool AuthorizationEndpointConfigured,
+    bool TokenEndpointConfigured,
+    bool CallbackUrlConfigured,
+    string Status,
+    string? CallbackUrl);
+
 public sealed class NotificationDeliveryService(HttpClient httpClient, IConfiguration configuration, ILogger<NotificationDeliveryService> logger)
 {
     public async Task<DeliveryLog> DeliverAsync(string recipient, string channel, string message, IdentityDbContext db)

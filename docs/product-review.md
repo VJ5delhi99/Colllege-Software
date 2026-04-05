@@ -15,6 +15,7 @@ The repository already had strong service coverage, but the shipped experience s
 - Teacher and student surfaces were thin and did not clearly connect next actions to the services already available in the repo.
 - Catalog ownership was temporarily duplicated across services, which created an architectural drift risk.
 - Admissions could convert inquiries to applications, but follow-up communications and reminder handling were not yet visible as an end-to-end operating loop.
+- Production-sensitive areas such as federation rollout and payment-provider readiness were not explicit enough in the shipped admin experience.
 
 ## Implemented In This Pass
 
@@ -23,12 +24,15 @@ The repository already had strong service coverage, but the shipped experience s
 - Added public homepage content and admissions inquiry APIs in `communication-service`, then deepened that workflow with applications, counseling, document verification, applicant communications, and reminder queues.
 - Rebuilt the operations web UI so inquiry handling, applications, documents, communications, and reminders are visible together in one admissions operating surface.
 - Expanded mobile role coverage so admin and teacher workspaces reflect more of the live platform state instead of only demo-style overview cards.
+- Added admissions automation logic for stale applications and delayed checklist items so the platform can create escalation/reminder work instead of relying only on manual monitoring.
+- Added federation readiness reporting, callback-based federated sign-in completion, payment-provider rollout readiness, and stronger production validation around those configuration seams.
+- Updated the admin workspace so automation risk and rollout-readiness signals are visible beside catalog, finance, and inquiry metrics.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
 
 - Replace one-file minimal-API service implementations with cleaner internal boundaries in the highest-change services.
-- Add richer admissions automation such as templated outreach, escalation policies, SLA tracking, and counselor workload orchestration.
+- Add richer admissions automation such as templated outreach, deeper escalation policies, and counselor workload orchestration.
 - Expand the mobile app so the refreshed public and operations patterns have deeper workflow parity, not just executive visibility.
 - Add deeper automated coverage for the public discovery, admissions, and cross-service role workflows.
 - Finish production rollout concerns such as external SSO federation, live payment credentials, and managed secret providers.

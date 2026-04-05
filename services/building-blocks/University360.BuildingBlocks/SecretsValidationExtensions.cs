@@ -52,6 +52,7 @@ public static class SecretsValidationExtensions
 
         ValidateConfiguredEmailDelivery(configuration);
         ValidateConfiguredPaymentProviders(configuration);
+        ValidateConfiguredFederationProviders(configuration);
     }
 
     private static void ValidateConfiguredEmailDelivery(IConfiguration configuration)
@@ -82,11 +83,14 @@ public static class SecretsValidationExtensions
     {
         foreach (var providerName in new[] { "Razorpay", "Stripe", "PayPal" })
         {
+            var enabled = bool.TryParse(configuration[$"Payments:{providerName}:Enabled"], out var parsedEnabled) && parsedEnabled;
             var publicKey = configuration[$"Payments:{providerName}:PublicKey"];
             var secretKey = configuration[$"Payments:{providerName}:SecretKey"];
             var webhookSecret = configuration[$"Payments:{providerName}:WebhookSecret"];
+            var merchantName = configuration[$"Payments:{providerName}:MerchantName"];
+            var supportedCurrencies = configuration[$"Payments:{providerName}:SupportedCurrencies"];
 
-            if (string.IsNullOrWhiteSpace(publicKey) && string.IsNullOrWhiteSpace(secretKey) && string.IsNullOrWhiteSpace(webhookSecret))
+            if (!enabled && string.IsNullOrWhiteSpace(publicKey) && string.IsNullOrWhiteSpace(secretKey) && string.IsNullOrWhiteSpace(webhookSecret))
             {
                 continue;
             }
@@ -94,6 +98,44 @@ public static class SecretsValidationExtensions
             if (IsDevelopmentPaymentValue(publicKey) || IsDevelopmentPaymentValue(secretKey) || IsDevelopmentPaymentValue(webhookSecret))
             {
                 throw new InvalidOperationException($"Production payment configuration for {providerName} must not use development or test values.");
+            }
+
+            if (enabled && (string.IsNullOrWhiteSpace(merchantName) || string.IsNullOrWhiteSpace(supportedCurrencies)))
+            {
+                throw new InvalidOperationException($"Production payment configuration for {providerName} must include merchant and supported-currency settings.");
+            }
+        }
+    }
+
+    private static void ValidateConfiguredFederationProviders(IConfiguration configuration)
+    {
+        foreach (var providerName in new[] { "Google", "MicrosoftEntraId" })
+        {
+            var prefix = $"Federation:Providers:{providerName}:";
+            var enabled = bool.TryParse(configuration[$"{prefix}Enabled"], out var parsedEnabled) && parsedEnabled;
+            if (!enabled)
+            {
+                continue;
+            }
+
+            var requiredKeys = new[]
+            {
+                $"{prefix}ClientSecret",
+                $"{prefix}CallbackUrl"
+            };
+
+            foreach (var key in requiredKeys)
+            {
+                if (string.IsNullOrWhiteSpace(configuration[key]))
+                {
+                    throw new InvalidOperationException($"Missing required production federation secret: {key}");
+                }
+            }
+
+            if (IsDevelopmentPaymentValue(configuration[$"{prefix}ClientSecret"]) ||
+                IsDevelopmentPaymentValue(configuration[$"{prefix}CallbackUrl"]))
+            {
+                throw new InvalidOperationException($"Production federation configuration for {providerName} must not use development or test values.");
             }
         }
     }

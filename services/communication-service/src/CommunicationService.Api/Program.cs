@@ -228,6 +228,45 @@ app.MapGet("/api/v1/admissions/summary", async (HttpContext httpContext, Communi
     return Results.Ok(AdmissionsWorkflowMetrics.Create(inquiries, applications, counselingSessions, documents, communications, reminders));
 }).RequirePermissions("announcements.create");
 
+app.MapPost("/api/v1/admissions/automation/run", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == tenantId).ToListAsync();
+    var documents = await dbContext.ApplicationDocuments.Where(x => x.TenantId == tenantId).ToListAsync();
+    var communications = await dbContext.AdmissionCommunications.Where(x => x.TenantId == tenantId).ToListAsync();
+    var reminders = await dbContext.AdmissionReminders.Where(x => x.TenantId == tenantId).ToListAsync();
+
+    var run = AdmissionsAutomationEngine.Run(tenantId, applications, documents, communications, reminders, DateTimeOffset.UtcNow);
+    if (run.CreatedReminders.Count > 0)
+    {
+        dbContext.AdmissionReminders.AddRange(run.CreatedReminders);
+    }
+
+    if (run.CreatedNotifications.Count > 0)
+    {
+        dbContext.Notifications.AddRange(run.CreatedNotifications);
+    }
+
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.automation.executed",
+        EntityId = Guid.NewGuid().ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "automation",
+        Details = $"Automation created {run.CreatedReminders.Count} reminders and flagged {run.Metrics.StaleApplications} stale applications.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(new
+    {
+        createdReminders = run.CreatedReminders.Count,
+        createdNotifications = run.CreatedNotifications.Count,
+        metrics = run.Metrics
+    });
+}).RequirePermissions("announcements.create");
+
 app.MapPost("/api/v1/admissions/inquiries/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateInquiryStatusRequest request, CommunicationDbContext dbContext) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -1188,8 +1227,10 @@ public static class AdmissionsWorkflowMetrics
         IReadOnlyCollection<CounselingSession> counselingSessions,
         IReadOnlyCollection<ApplicationDocument> documents,
         IReadOnlyCollection<AdmissionCommunication> communications,
-        IReadOnlyCollection<AdmissionReminder> reminders) =>
-        new(
+        IReadOnlyCollection<AdmissionReminder> reminders)
+    {
+        var automation = AdmissionsAutomationMetrics.Create(applications, documents, communications, reminders, DateTimeOffset.UtcNow);
+        return new(
             inquiries.Count,
             inquiries.Count(x => x.Status == "New"),
             inquiries.Count(x => x.Status == "In Review"),
@@ -1216,7 +1257,9 @@ public static class AdmissionsWorkflowMetrics
             new AdmissionsReminderMetrics(
                 reminders.Count,
                 reminders.Count(x => x.Status == "Open"),
-                reminders.Count(x => x.Status == "Completed")));
+                reminders.Count(x => x.Status == "Completed")),
+            automation);
+    }
 }
 
 public sealed record AdmissionsWorkflowSummary(
@@ -1228,10 +1271,162 @@ public sealed record AdmissionsWorkflowSummary(
     AdmissionsCounselingMetrics Counseling,
     AdmissionsDocumentMetrics Documents,
     AdmissionsCommunicationMetrics Communications,
-    AdmissionsReminderMetrics Reminders);
+    AdmissionsReminderMetrics Reminders,
+    AdmissionsAutomationMetrics Automation);
 
 public sealed record AdmissionsApplicationMetrics(int Total, int Submitted, int UnderReview, int Qualified, int Offered);
 public sealed record AdmissionsCounselingMetrics(int Total, int Scheduled, int Completed);
 public sealed record AdmissionsDocumentMetrics(int Total, int Pending, int Verified);
 public sealed record AdmissionsCommunicationMetrics(int Total, int Email, int Sms, int Sent);
 public sealed record AdmissionsReminderMetrics(int Total, int Open, int Completed);
+public sealed record AdmissionsAutomationMetrics(int StaleApplications, int OverdueReminders, int PendingDocumentFollowUps, int EscalationsOpen)
+{
+    public static AdmissionsAutomationMetrics Create(
+        IReadOnlyCollection<AdmissionApplication> applications,
+        IReadOnlyCollection<ApplicationDocument> documents,
+        IReadOnlyCollection<AdmissionCommunication> communications,
+        IReadOnlyCollection<AdmissionReminder> reminders,
+        DateTimeOffset nowUtc)
+    {
+        var staleApplications = applications.Count(application => AdmissionsAutomationRules.IsApplicationStale(application, communications, nowUtc));
+        var overdueReminders = reminders.Count(reminder =>
+            string.Equals(reminder.Status, "Open", StringComparison.OrdinalIgnoreCase) &&
+            reminder.DueAtUtc <= nowUtc);
+        var pendingDocumentFollowUps = documents.Count(document => AdmissionsAutomationRules.RequiresDocumentFollowUp(document, reminders, nowUtc));
+        var escalationsOpen = reminders.Count(reminder =>
+            string.Equals(reminder.Status, "Open", StringComparison.OrdinalIgnoreCase) &&
+            reminder.ReminderType.Contains("Escalation", StringComparison.OrdinalIgnoreCase));
+
+        return new AdmissionsAutomationMetrics(staleApplications, overdueReminders, pendingDocumentFollowUps, escalationsOpen);
+    }
+}
+
+public static class AdmissionsAutomationRules
+{
+    public static bool IsApplicationStale(
+        AdmissionApplication application,
+        IReadOnlyCollection<AdmissionCommunication> communications,
+        DateTimeOffset nowUtc)
+    {
+        if (!string.Equals(application.Status, "Submitted", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(application.Status, "Under Review", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (application.UpdatedAtUtc >= nowUtc.AddHours(-48))
+        {
+            return false;
+        }
+
+        var lastCommunication = communications
+            .Where(item => item.ApplicationId == application.Id)
+            .OrderByDescending(item => item.CreatedAtUtc)
+            .FirstOrDefault();
+
+        return lastCommunication is null || lastCommunication.CreatedAtUtc < nowUtc.AddHours(-48);
+    }
+
+    public static bool RequiresDocumentFollowUp(
+        ApplicationDocument document,
+        IReadOnlyCollection<AdmissionReminder> reminders,
+        DateTimeOffset nowUtc)
+    {
+        if (!string.Equals(document.Status, "Requested", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(document.Status, "Under Review", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (document.RequestedAtUtc >= nowUtc.AddHours(-36))
+        {
+            return false;
+        }
+
+        return !reminders.Any(reminder =>
+            reminder.ApplicationId == document.ApplicationId &&
+            reminder.ReminderType.Contains(document.DocumentType, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(reminder.Status, "Open", StringComparison.OrdinalIgnoreCase));
+    }
+}
+
+public static class AdmissionsAutomationEngine
+{
+    public static AdmissionsAutomationRunResult Run(
+        string tenantId,
+        IReadOnlyCollection<AdmissionApplication> applications,
+        IReadOnlyCollection<ApplicationDocument> documents,
+        IReadOnlyCollection<AdmissionCommunication> communications,
+        IReadOnlyCollection<AdmissionReminder> reminders,
+        DateTimeOffset nowUtc)
+    {
+        var createdReminders = new List<AdmissionReminder>();
+        var createdNotifications = new List<Notification>();
+
+        foreach (var application in applications.Where(application => AdmissionsAutomationRules.IsApplicationStale(application, communications, nowUtc)))
+        {
+            var hasOpenEscalation = reminders.Any(reminder =>
+                reminder.ApplicationId == application.Id &&
+                reminder.ReminderType.Contains("Escalation", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(reminder.Status, "Open", StringComparison.OrdinalIgnoreCase));
+
+            if (hasOpenEscalation)
+            {
+                continue;
+            }
+
+            createdReminders.Add(new AdmissionReminder
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ApplicationId = application.Id,
+                ApplicantName = application.ApplicantName,
+                ReminderType = "Admissions Escalation",
+                DueAtUtc = nowUtc.AddHours(4),
+                Status = "Open",
+                Notes = "Application has been inactive for more than 48 hours without a recent applicant follow-up.",
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            });
+        }
+
+        foreach (var document in documents.Where(document => AdmissionsAutomationRules.RequiresDocumentFollowUp(document, reminders.Concat(createdReminders).ToArray(), nowUtc)))
+        {
+            createdReminders.Add(new AdmissionReminder
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ApplicationId = document.ApplicationId,
+                ApplicantName = document.ApplicantName,
+                ReminderType = $"{document.DocumentType} follow-up",
+                DueAtUtc = nowUtc.AddHours(12),
+                Status = "Open",
+                Notes = "Automation queued a document follow-up because the checklist item has stayed pending beyond the SLA window.",
+                CreatedAtUtc = nowUtc,
+                UpdatedAtUtc = nowUtc
+            });
+        }
+
+        if (createdReminders.Count > 0)
+        {
+            createdNotifications.Add(new Notification
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                Title = "Admissions automation queued follow-up work",
+                Message = $"{createdReminders.Count} reminders were created for stale applications or checklist delays.",
+                Audience = "Admin",
+                CreatedAtUtc = nowUtc,
+                Source = "admissions-automation"
+            });
+        }
+
+        var metrics = AdmissionsAutomationMetrics.Create(applications, documents, communications, reminders.Concat(createdReminders).ToArray(), nowUtc);
+        return new AdmissionsAutomationRunResult(createdReminders, createdNotifications, metrics);
+    }
+}
+
+public sealed record AdmissionsAutomationRunResult(
+    IReadOnlyCollection<AdmissionReminder> CreatedReminders,
+    IReadOnlyCollection<Notification> CreatedNotifications,
+    AdmissionsAutomationMetrics Metrics);

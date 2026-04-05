@@ -8,6 +8,7 @@ builder.Services.AddHttpClient<AuthorizationCatalogClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Authorization"] ?? "http://authorization-service:8080"));
 builder.Services.AddHttpClient<NotificationDeliveryService>();
 builder.Services.AddSingleton<OidcClientCatalog>();
+builder.Services.AddSingleton<FederationReadinessCatalog>();
 
 var app = builder.Build();
 app.UsePlatformDefaults();

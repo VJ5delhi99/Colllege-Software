@@ -67,14 +67,17 @@ To close the most visible product gaps without creating a parallel architecture,
 
 - `organization-service` now carries the live public organization catalog used by the website: colleges, campuses, departments, featured programs, and catalog summary metrics
 - `communication-service` carries public homepage content and inquiry capture: announcement feed, ticker items, admissions contact data, and inquiry workflow
+- `communication-service` now also owns admissions automation rules that flag stale applications and delayed checklist items into reminder/escalation work
 - the web experience should consume those public endpoints directly so homepage sections are no longer maintained as disconnected static UI data
 - admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, applicant follow-ups, reminder queues, and public-content health next to existing audit and communication views
+- production-facing admin views should also surface federation and payment rollout readiness so release risk is not hidden inside appsettings only
 
 ## Near-Term Architectural Follow-Up
 
 The dedicated organization boundary is now extracted, but there is still follow-through work to finish:
 
 1. move academic catalog ownership fully to explicit program/course/offering integration contracts between `organization-service` and `academic-service`
-2. extend `communication-service` from inquiry capture into deeper applicant journey automation, SLA tracking, and escalation workflows
-3. promote more of the public homepage contracts into gateway/BFF aggregation once the new organization boundary is the only source of truth
-4. continue decomposing the highest-change services away from one-file minimal-API startup composition
+2. extend `communication-service` from SLA-style automation into fuller applicant journey orchestration and counselor workload balancing
+3. complete live external federation and payment-provider rollout in real environments on top of the new readiness/reporting seams
+4. promote more of the public homepage contracts into gateway/BFF aggregation once the new organization boundary is the only source of truth
+5. continue decomposing the highest-change services away from one-file minimal-API startup composition
