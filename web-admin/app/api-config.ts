@@ -8,6 +8,7 @@ const defaults = {
   NEXT_PUBLIC_COMMUNICATION_API_URL: "http://localhost:7004",
   NEXT_PUBLIC_EXAM_API_URL: "http://localhost:7005",
   NEXT_PUBLIC_FINANCE_API_URL: "http://localhost:7006",
+  NEXT_PUBLIC_LMS_API_URL: "http://localhost:7013",
   NEXT_PUBLIC_AI_ASSISTANT_URL: "http://localhost:7007/api/chat"
 } as const;
 
@@ -26,5 +27,6 @@ export const apiConfig = {
   communication: () => getEnv("NEXT_PUBLIC_COMMUNICATION_API_URL"),
   exam: () => getEnv("NEXT_PUBLIC_EXAM_API_URL"),
   finance: () => getEnv("NEXT_PUBLIC_FINANCE_API_URL"),
+  lms: () => getEnv("NEXT_PUBLIC_LMS_API_URL"),
   assistant: () => getEnv("NEXT_PUBLIC_AI_ASSISTANT_URL")
 };

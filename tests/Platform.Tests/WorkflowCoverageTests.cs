@@ -155,4 +155,52 @@ public sealed class WorkflowCoverageTests
         readiness.Status.Should().Be("Configuration Required");
         readiness.ClientSecretConfigured.Should().BeFalse();
     }
+
+    [Fact]
+    public void StudentWorkspaceSummary_CountsOpenRequestsAndRecentItems()
+    {
+        var student = new StudentRecord
+        {
+            Id = Guid.NewGuid(),
+            Name = "Aarav Sharma",
+            Department = "Computer Science",
+            Batch = "2022",
+            AcademicStatus = "Active"
+        };
+        var summary = StudentWorkspaceSummary.Create(
+            student,
+            [
+                new StudentEnrollment { CourseCode = "CSE401", Status = "Enrolled", EnrolledAtUtc = DateTimeOffset.UtcNow },
+                new StudentEnrollment { CourseCode = "PHY201", Status = "Enrolled", EnrolledAtUtc = DateTimeOffset.UtcNow.AddDays(-1) }
+            ],
+            [
+                new StudentServiceRequest { RequestType = "Bonafide Letter", Status = "Submitted", RequestedAtUtc = DateTimeOffset.UtcNow },
+                new StudentServiceRequest { RequestType = "Leave Request", Status = "In Review", RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-1) },
+                new StudentServiceRequest { RequestType = "Fee Review", Status = "Completed", RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) }
+            ]);
+
+        summary.EnrollmentCount.Should().Be(2);
+        summary.OpenRequests.Should().Be(2);
+        summary.RecentEnrollments.Should().HaveCount(2);
+        summary.RecentRequests.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void TeacherAttendanceSummary_FlagsLowAttendanceCourses()
+    {
+        var sessionId = Guid.NewGuid();
+        var summary = TeacherAttendanceSummary.Create(
+            [new AttendanceSession { Id = sessionId, Status = "Active" }],
+            [
+                new AttendanceRecord { SessionId = sessionId, CourseCode = "PHY201", Status = "Present" },
+                new AttendanceRecord { SessionId = sessionId, CourseCode = "PHY201", Status = "Absent" },
+                new AttendanceRecord { SessionId = sessionId, CourseCode = "CSE401", Status = "Present" }
+            ]);
+
+        summary.TotalSessions.Should().Be(1);
+        summary.ActiveSessions.Should().Be(1);
+        summary.RecordsCaptured.Should().Be(3);
+        summary.LowAttendanceCourses.Should().Be(1);
+        summary.Alerts.Should().Contain(item => item.CourseCode == "PHY201" && item.Percentage < 75);
+    }
 }

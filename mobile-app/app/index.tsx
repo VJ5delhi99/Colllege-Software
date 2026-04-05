@@ -15,12 +15,16 @@ type DashboardState = {
   announcements: string;
   schedule: string;
   finance: string;
+  enrollments: string;
+  requests: string;
   principalBlogTitle: string;
   principalBlogBody: string;
   nextClassTitle: string;
   nextClassMeta: string;
   paymentTitle: string;
   paymentMeta: string;
+  studentOpsTitle: string;
+  studentOpsMeta: string;
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
   error: string | null;
 };
@@ -31,12 +35,16 @@ const initialState: DashboardState = {
   announcements: "--",
   schedule: "--",
   finance: "--",
+  enrollments: "--",
+  requests: "--",
   principalBlogTitle: "Loading updates",
   principalBlogBody: "Fetching campus announcements and handbook highlights.",
   nextClassTitle: "Loading class",
   nextClassMeta: "Fetching schedule",
   paymentTitle: "Loading payments",
   paymentMeta: "Fetching finance posture",
+  studentOpsTitle: "Loading student services",
+  studentOpsMeta: "Fetching self-service status",
   notifications: [],
   error: null
 };
@@ -96,27 +104,35 @@ export default function HomeScreen() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [attendance, results, communication, academic, finance, notifications] = await Promise.all([
+        const [attendance, results, communication, academic, finance, workspace, notifications] = await Promise.all([
           fetchJson(`${apiConfig.attendance()}/api/v1/students/${session.user.id}/summary`, headers),
           fetchJson(`${apiConfig.exam()}/api/v1/students/${session.user.id}/summary`, headers),
           fetchJson(`${apiConfig.communication()}/api/v1/dashboard/summary`, headers),
           fetchJson(`${apiConfig.academic()}/api/v1/dashboard/summary`, headers),
+          fetchJson(`${apiConfig.student()}/api/v1/students/${session.user.id}/workspace`, headers),
           fetchJson(`${apiConfig.finance()}/api/v1/students/${session.user.id}/summary`, headers),
           fetchJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=3`, headers)
         ]);
 
-        return { attendance, results, communication, academic, finance, notifications };
+        return { attendance, results, communication, academic, finance, workspace, notifications, headers };
       })
-      .then(({ attendance, results, communication, academic, finance, notifications }) => {
+      .then(async ({ attendance, results, communication, academic, finance, workspace, notifications, headers }) => {
         const latestResult = results?.latest ?? null;
         const latestPayment = finance?.latestPayment ?? null;
         const latestSession = finance?.latestSession ?? null;
+        const courseCodes = Array.from(new Set((workspace?.recentEnrollments ?? []).map((item: { courseCode: string }) => item.courseCode)));
+        const lms = await fetchJson(
+          `${apiConfig.lms()}/api/v1/workspace/summary${courseCodes.length > 0 ? `?courseCodes=${encodeURIComponent(courseCodes.join(","))}` : ""}`,
+          headers
+        ).catch(() => ({ materials: 0, assignments: 0 }));
         setState({
           attendance: `${attendance?.percentage ?? 0}%`,
           results: latestResult ? `${latestResult.gpa} GPA` : `${results?.averageGpa ?? 0} GPA`,
           announcements: `${notifications?.items?.length ?? communication?.total ?? 0} Updates`,
           schedule: academic?.nextCourse ? academic.nextCourse.startTime : "No class",
           finance: formatMoneyCompact(finance?.totalPaid ?? 0),
+          enrollments: `${workspace?.enrollmentCount ?? 0} Courses`,
+          requests: `${workspace?.openRequests ?? 0} Open`,
           principalBlogTitle: communication?.latest?.title ?? "No announcement available",
           principalBlogBody: communication?.latest?.body ?? "Campus communication feed is empty.",
           nextClassTitle: academic?.nextCourse?.title ?? "No class scheduled",
@@ -133,6 +149,10 @@ export default function HomeScreen() {
             : latestPayment
               ? `${latestPayment.currency ?? "INR"} ${latestPayment.amount ?? 0} paid via ${latestPayment.provider ?? "gateway"}.`
               : "No recent student payment activity was returned.",
+          studentOpsTitle: workspace?.recentRequests?.[0]?.title ?? "Student services are available",
+          studentOpsMeta: workspace?.recentRequests?.[0]
+            ? `${workspace.recentRequests[0].requestType} | ${workspace.recentRequests[0].status}`
+            : `${lms?.materials ?? 0} materials and ${lms?.assignments ?? 0} assignments are currently in the learning queue.`,
           notifications: notifications?.items ?? [],
           error: null
         });
@@ -161,7 +181,9 @@ export default function HomeScreen() {
     { label: "Results", value: state.results, icon: GraduationCap },
     { label: "Announcements", value: state.announcements, icon: Bell },
     { label: "Schedule", value: state.schedule, icon: CalendarDays },
-    { label: "Finance", value: state.finance, icon: Wallet }
+    { label: "Finance", value: state.finance, icon: Wallet },
+    { label: "Enrollments", value: state.enrollments, icon: GraduationCap },
+    { label: "Requests", value: state.requests, icon: Bell }
   ];
 
   return (
@@ -302,6 +324,27 @@ export default function HomeScreen() {
           </Text>
           <Text style={{ color: "#fed7aa", marginTop: 10 }}>
             {state.paymentMeta}
+          </Text>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 470, type: "timing", duration: 450 }}
+          style={{
+            borderRadius: 24,
+            padding: 20,
+            backgroundColor: "rgba(34, 197, 94, 0.12)",
+            borderWidth: 1,
+            borderColor: "rgba(134, 239, 172, 0.18)"
+          }}
+        >
+          <Text style={{ color: "#bbf7d0", fontSize: 13 }}>Student Self-Service</Text>
+          <Text style={{ color: "#f0fdf4", fontSize: 22, fontWeight: "700", marginTop: 8 }}>
+            {state.studentOpsTitle}
+          </Text>
+          <Text style={{ color: "#dcfce7", marginTop: 10 }}>
+            {state.studentOpsMeta}
           </Text>
         </AnimatedSurface>
 

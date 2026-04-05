@@ -18,12 +18,16 @@ export type MobileDashboardState = {
   announcements: string;
   schedule: string;
   finance: string;
+  enrollments: string;
+  requests: string;
   principalBlogTitle: string;
   principalBlogBody: string;
   nextClassTitle: string;
   nextClassMeta: string;
   paymentTitle: string;
   paymentMeta: string;
+  studentOpsTitle: string;
+  studentOpsMeta: string;
   notifications: Array<{
     id: string;
     title: string;
@@ -52,12 +56,16 @@ export const mobileDemoDashboardState: MobileDashboardState = {
   announcements: "3 New",
   schedule: "11:30 AM",
   finance: "INR 57K",
+  enrollments: "3 Courses",
+  requests: "2 Open",
   principalBlogTitle: "Mid-semester review schedule released",
   principalBlogBody: "The demo environment is showing seeded academic notices instead of the live campus communication feed.",
   nextClassTitle: "Distributed Systems",
   nextClassMeta: "B-204 - 11:30 AM - CSE401",
   paymentTitle: "Pending INV-2026-003",
   paymentMeta: "PayPal fee collection session is waiting for checkout completion.",
+  studentOpsTitle: "Need bonafide letter for internship verification",
+  studentOpsMeta: "Bonafide Letter | Submitted",
   notifications: [
     {
       id: "mobile-note-1",

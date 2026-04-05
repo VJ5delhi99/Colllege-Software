@@ -27,6 +27,8 @@ The repository already had strong service coverage, but the shipped experience s
 - Added admissions automation logic for stale applications and delayed checklist items so the platform can create escalation/reminder work instead of relying only on manual monitoring.
 - Added federation readiness reporting, callback-based federated sign-in completion, payment-provider rollout readiness, and stronger production validation around those configuration seams.
 - Updated the admin workspace so automation risk and rollout-readiness signals are visible beside catalog, finance, and inquiry metrics.
+- Added student self-service workflows and richer workspace context so requests, enrollments, and learning content are visible in both web and mobile student experiences.
+- Expanded the teacher surface to include owned courses, attendance-risk alerts, active session visibility, and LMS workload instead of only generic summary numbers.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work

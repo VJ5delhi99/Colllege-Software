@@ -13,13 +13,55 @@ await SeedAsync(app);
 
 app.MapGet("/", () => Results.Ok(new { service = "lms-service", status = "ready", storage = "signed-url" }));
 
-app.MapGet("/api/v1/materials", async (HttpContext httpContext, LmsDbContext dbContext) =>
-    await dbContext.Materials.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).ToListAsync())
+app.MapGet("/api/v1/materials", async (HttpContext httpContext, LmsDbContext dbContext, string? courseCode) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var query = dbContext.Materials.Where(x => x.TenantId == tenantId);
+    if (!string.IsNullOrWhiteSpace(courseCode))
+    {
+        query = query.Where(x => x.CourseCode == courseCode);
+    }
+
+    return Results.Ok(await query.OrderByDescending(x => x.CreatedAtUtc).ToListAsync());
+})
     .RequirePermissions("results.view");
 
-app.MapGet("/api/v1/assignments", async (HttpContext httpContext, LmsDbContext dbContext) =>
-    await dbContext.Assignments.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).ToListAsync())
+app.MapGet("/api/v1/assignments", async (HttpContext httpContext, LmsDbContext dbContext, string? courseCode) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var query = dbContext.Assignments.Where(x => x.TenantId == tenantId);
+    if (!string.IsNullOrWhiteSpace(courseCode))
+    {
+        query = query.Where(x => x.CourseCode == courseCode);
+    }
+
+    return Results.Ok(await query.OrderByDescending(x => x.UploadedAtUtc).ToListAsync());
+})
     .RequirePermissions("results.view");
+
+app.MapGet("/api/v1/workspace/summary", async (HttpContext httpContext, LmsDbContext dbContext, string? courseCodes) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var filters = SplitList(courseCodes);
+    var materialQuery = dbContext.Materials.Where(x => x.TenantId == tenantId);
+    var assignmentQuery = dbContext.Assignments.Where(x => x.TenantId == tenantId);
+
+    if (filters.Length > 0)
+    {
+        materialQuery = materialQuery.Where(x => filters.Contains(x.CourseCode));
+        assignmentQuery = assignmentQuery.Where(x => filters.Contains(x.CourseCode));
+    }
+
+    var materials = await materialQuery.OrderByDescending(x => x.CreatedAtUtc).ToListAsync();
+    var assignments = await assignmentQuery.OrderByDescending(x => x.UploadedAtUtc).ToListAsync();
+    return Results.Ok(new
+    {
+        materials = materials.Count,
+        assignments = assignments.Count,
+        latestMaterial = materials.FirstOrDefault(),
+        latestAssignment = assignments.FirstOrDefault()
+    });
+}).RequirePermissions("results.view");
 
 app.MapPost("/api/v1/materials/upload-request", async (HttpContext httpContext, [FromBody] UploadRequest request, IObjectStorageService storage, LmsDbContext dbContext) =>
 {
@@ -39,7 +81,8 @@ app.MapPost("/api/v1/materials/upload-request", async (HttpContext httpContext, 
         CourseCode = request.CourseCode,
         Title = request.Title,
         ObjectKey = objectKey,
-        FileName = safeFileName
+        FileName = safeFileName,
+        CreatedAtUtc = DateTimeOffset.UtcNow
     };
 
     dbContext.Materials.Add(material);
@@ -62,6 +105,7 @@ app.MapPost("/api/v1/assignments/upload-request", async (HttpContext httpContext
     {
         Id = Guid.NewGuid(),
         TenantId = httpContext.GetValidatedTenantId(),
+        CourseCode = request.CourseCode,
         Title = request.Title,
         FileName = safeFileName,
         ObjectKey = objectKey,
@@ -143,6 +187,11 @@ static string SanitizeFileName(string fileName)
     return string.IsNullOrWhiteSpace(sanitized) ? "upload.bin" : sanitized.Replace(' ', '-');
 }
 
+static string[] SplitList(string? value) =>
+    string.IsNullOrWhiteSpace(value)
+        ? []
+        : value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
 static async Task SeedAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
@@ -152,8 +201,16 @@ static async Task SeedAsync(WebApplication app)
         return;
     }
 
-    dbContext.Materials.Add(new CourseMaterial { Id = Guid.NewGuid(), TenantId = "default", CourseCode = "CSE401", Title = "Week 1 Slides", FileName = "week1-slides.pdf", ObjectKey = "default/materials/week1-slides.pdf" });
-    dbContext.Assignments.Add(new AssignmentItem { Id = Guid.NewGuid(), TenantId = "default", Title = "Distributed Systems Lab 1", FileName = "lab1.pdf", ObjectKey = "default/assignments/lab1.pdf", UploadedAtUtc = DateTimeOffset.UtcNow.AddDays(-3) });
+    dbContext.Materials.AddRange(
+    [
+        new CourseMaterial { Id = Guid.NewGuid(), TenantId = "default", CourseCode = "CSE401", Title = "Week 1 Slides", FileName = "week1-slides.pdf", ObjectKey = "default/materials/week1-slides.pdf", CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-7) },
+        new CourseMaterial { Id = Guid.NewGuid(), TenantId = "default", CourseCode = "PHY201", Title = "Physics Revision Sheet", FileName = "physics-revision.pdf", ObjectKey = "default/materials/physics-revision.pdf", CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-4) }
+    ]);
+    dbContext.Assignments.AddRange(
+    [
+        new AssignmentItem { Id = Guid.NewGuid(), TenantId = "default", CourseCode = "CSE401", Title = "Distributed Systems Lab 1", FileName = "lab1.pdf", ObjectKey = "default/assignments/lab1.pdf", UploadedAtUtc = DateTimeOffset.UtcNow.AddDays(-3) },
+        new AssignmentItem { Id = Guid.NewGuid(), TenantId = "default", CourseCode = "MTH301", Title = "Matrices Problem Set", FileName = "matrices.pdf", ObjectKey = "default/assignments/matrices.pdf", UploadedAtUtc = DateTimeOffset.UtcNow.AddDays(-1) }
+    ]);
     dbContext.LifecyclePolicies.Add(new StorageLifecyclePolicy { Id = Guid.NewGuid(), Bucket = "university360-materials", Prefix = "default/materials/", RetentionDays = 365, ArchiveAfterDays = 90 });
     await dbContext.SaveChangesAsync();
 }
@@ -169,12 +226,14 @@ public sealed class CourseMaterial
     public string Title { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public string ObjectKey { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
 public sealed class AssignmentItem
 {
     public Guid Id { get; set; }
     public string TenantId { get; set; } = "default";
+    public string CourseCode { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public string ObjectKey { get; set; } = string.Empty;

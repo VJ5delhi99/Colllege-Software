@@ -2,8 +2,8 @@
 
 ## Current Estimate
 
-- Product-integrated MVP: `93%`
-- Production-ready ERP platform: `74%`
+- Product-integrated MVP: `95%`
+- Production-ready ERP platform: `76%`
 
 ## Module Scores
 
@@ -13,8 +13,8 @@
 | Admissions workflow | 93% | Inquiry capture, inquiry-to-application conversion, counseling scheduling, document verification, follow-up/reminder workflows, and SLA-style automation signals now exist, but richer orchestration and counselor balancing are still partial. |
 | Identity and access | 81% | Core JWT, reset, verification, MFA, auth-code flow, federation readiness reporting, and callback-based federated sign-in handling now exist, but full external provider rollout and operational secret management still need real environment work. |
 | RBAC and admin controls | 78% | Good baseline coverage, but scope-aware governance and more complete admin operations are still evolving. |
-| Student experience | 78% | Core web and mobile signals are better aligned now, but broader self-service workflows and transactions are still incomplete. |
-| Teacher experience | 70% | Better than before, but still thinner than a complete faculty operating surface. |
+| Student experience | 88% | Student web and mobile now include profile context, enrollments, learning queue visibility, finance posture, and self-service request workflows, but deeper transactional journeys and approvals still remain. |
+| Teacher experience | 85% | Teacher web and mobile now expose owned courses, attendance risk, active faculty sessions, and LMS workload, but richer grading, advisement, and upload/action flows are still thinner than a full faculty suite. |
 | Finance | 79% | Payments, reconciliation, student-facing summaries, provider readiness reporting, rollout validation, and stronger production guardrails exist, but real live-provider registration and fuller self-service actions are still maturing. |
 | Academics and catalog | 88% | The dedicated organization boundary exists and transitional public catalog duplication has now been removed from academic-service, but deeper offering/timetable integration is still pending. |
 | Communication and notifications | 82% | Public and authenticated communication is stronger now, and admissions follow-up/reminder operations are visible end-to-end, but this is still not a full publishing or journey-orchestration platform. |
@@ -25,7 +25,8 @@
 ## Main Remaining Gaps
 
 - richer admissions automation such as templated journeys, counselor workload balancing, and cross-channel outreach execution
-- broader teacher and student workflow depth across assignments, advising, attendance actions, and self-service transactions
+- deeper grading, advisement, and faculty action flows such as direct attendance session control and richer content workflows
+- broader student transactional depth across approvals, payments, certificates, and end-to-end request fulfillment
 - full external SSO federation rollout, live payment registration/webhook setup, and managed secret backends in real environments
 - stronger end-to-end and service-level automated test coverage
 - deeper mobile parity across non-student roles and transaction workflows

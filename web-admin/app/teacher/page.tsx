@@ -6,21 +6,54 @@ import { apiConfig } from "../api-config";
 import { getAdminSession, logoutAdmin } from "../auth-client";
 import { isDemoModeEnabled } from "../demo-mode";
 
+type CourseItem = {
+  id: string;
+  courseCode: string;
+  title: string;
+  semesterCode: string;
+  dayOfWeek: string;
+  startTime: string;
+  room: string;
+};
+
+type AttendanceAlert = {
+  courseCode: string;
+  percentage: number;
+  totalRecords: number;
+};
+
 type TeacherState = {
   attendancePercentage: number;
   totalCourses: number;
   nextCourse: string;
-  recentResults: number;
   teachingLoad: number;
+  activeSessions: number;
+  lowAttendanceCourses: number;
+  lmsMaterials: number;
+  lmsAssignments: number;
+  ownedCourses: CourseItem[];
+  alerts: AttendanceAlert[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
 };
 
 const demoState: TeacherState = {
   attendancePercentage: 88,
-  totalCourses: 6,
+  totalCourses: 3,
   nextCourse: "Distributed Systems",
-  recentResults: 2,
-  teachingLoad: 4,
+  teachingLoad: 3,
+  activeSessions: 1,
+  lowAttendanceCourses: 1,
+  lmsMaterials: 2,
+  lmsAssignments: 2,
+  ownedCourses: [
+    { id: "course-1", courseCode: "CSE401", title: "Distributed Systems", semesterCode: "2026-SPRING", dayOfWeek: "Monday", startTime: "02:00 PM", room: "B-204" },
+    { id: "course-2", courseCode: "PHY201", title: "Physics", semesterCode: "2026-SPRING", dayOfWeek: "Tuesday", startTime: "10:00 AM", room: "Lab-2" },
+    { id: "course-3", courseCode: "MTH301", title: "Advanced Mathematics", semesterCode: "2026-SPRING", dayOfWeek: "Wednesday", startTime: "11:30 AM", room: "A-112" }
+  ],
+  alerts: [
+    { courseCode: "PHY201", percentage: 66.67, totalRecords: 3 },
+    { courseCode: "CSE401", percentage: 100, totalRecords: 2 }
+  ],
   notifications: [
     {
       id: "teacher-note-1",
@@ -70,31 +103,44 @@ export default function TeacherPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [attendanceResponse, teacherSummaryResponse, resultsResponse, notificationsResponse] = await Promise.all([
-          fetch(`${apiConfig.attendance()}/api/v1/analytics/summary`, { headers }),
+        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
-          fetch(`${apiConfig.exam()}/api/v1/results/summary`, { headers }),
+          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers })
         ]);
 
-        if (!attendanceResponse.ok || !teacherSummaryResponse.ok || !resultsResponse.ok || !notificationsResponse.ok) {
+        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok) {
           throw new Error("Unable to load the teacher workspace.");
         }
 
-        const [attendancePayload, teacherSummaryPayload, resultsPayload, notificationsPayload] = await Promise.all([
-          attendanceResponse.json(),
+        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload] = await Promise.all([
           teacherSummaryResponse.json(),
-          resultsResponse.json(),
+          attendanceResponse.json(),
+          coursesResponse.json(),
           notificationsResponse.json()
         ]);
 
+        const ownedCourses = (coursesPayload?.items ?? []) as CourseItem[];
+        const courseCodes = Array.from(new Set(ownedCourses.map((item) => item.courseCode)));
+        const lmsSummaryResponse = await fetch(
+          `${apiConfig.lms()}/api/v1/workspace/summary${courseCodes.length > 0 ? `?courseCodes=${encodeURIComponent(courseCodes.join(","))}` : ""}`,
+          { headers }
+        );
+        const lmsSummaryPayload = lmsSummaryResponse.ok ? await lmsSummaryResponse.json() : { materials: 0, assignments: 0 };
+
         if (!cancelled) {
           setState({
-            attendancePercentage: attendancePayload?.percentage ?? 0,
+            attendancePercentage: attendancePayload?.attendancePercentage ?? 0,
             totalCourses: teacherSummaryPayload?.totalCourses ?? 0,
             nextCourse: teacherSummaryPayload?.nextCourse?.title ?? "No class scheduled",
-            recentResults: resultsPayload?.totalPublished ?? 0,
             teachingLoad: teacherSummaryPayload?.teachingLoad ?? 0,
+            activeSessions: attendancePayload?.activeSessions ?? 0,
+            lowAttendanceCourses: attendancePayload?.lowAttendanceCourses ?? 0,
+            lmsMaterials: lmsSummaryPayload?.materials ?? 0,
+            lmsAssignments: lmsSummaryPayload?.assignments ?? 0,
+            ownedCourses,
+            alerts: (attendancePayload?.alerts ?? []) as AttendanceAlert[],
             notifications: notificationsPayload?.items ?? []
           });
           setError(null);
@@ -129,9 +175,9 @@ export default function TeacherPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.4em] text-amber-200">Teacher workspace</p>
-              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Classes, attendance, notifications, and teaching load in one flow.</h1>
+              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Owned courses, attendance risk, and teaching workload in one faculty surface.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                This surface now uses teacher-specific academic summaries instead of generic tenant-wide academic shortcuts.
+                The teacher experience now carries course ownership, attendance alerts, and learning workload instead of only top-line summary cards.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -154,37 +200,88 @@ export default function TeacherPage() {
 
         <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Attendance health</p>
-            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : `${state.attendancePercentage}%`}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">Spot low-performing cohorts before they become escalations.</p>
-          </article>
-          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Course load</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Owned courses</p>
             <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.totalCourses}</p>
             <p className="mt-3 text-sm leading-6 text-amber-100/90">Teacher-specific course ownership from the academic service.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Next class</p>
-            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.nextCourse}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">The most immediate schedule cue for teaching flow.</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Active attendance sessions</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.activeSessions}</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Faculty attendance operations are now visible directly in the teacher workspace.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Published result cycles</p>
-            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.recentResults}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">Assessment publishing stays visible beside class delivery.</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Attendance health</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : `${state.attendancePercentage}%`}</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Not just tenant-wide data, but professor-scoped session performance.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Low-attendance courses</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.lowAttendanceCourses}</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Courses below recovery threshold that need faculty attention.</p>
           </article>
         </section>
 
-        <section className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <section className="mt-6 grid gap-5 lg:grid-cols-[0.98fr_1.02fr]">
           <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Teaching load</p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">Keep workload visible without admin-only noise</h2>
-            <div className="mt-6 rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
-              <p className="text-sm text-slate-400">Distinct teaching assignments</p>
-              <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.teachingLoad}</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Course ownership</p>
+                <h2 className="mt-3 text-2xl font-semibold text-white">Faculty schedule and next-class context</h2>
+              </div>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                {loading ? "Loading" : state.nextCourse}
+              </span>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {state.ownedCourses.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.courseCode}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.semesterCode}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{item.dayOfWeek} | {item.startTime} | {item.room}</p>
+                </article>
+              ))}
+              {!loading && state.ownedCourses.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No owned courses are available yet.</div> : null}
             </div>
           </article>
 
+          <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Teaching operations</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">Learning workload and attendance risk sit together now</h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Teaching load</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.teachingLoad}</p>
+              </div>
+              <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Materials</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.lmsMaterials}</p>
+              </div>
+              <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Assignments</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.lmsAssignments}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {state.alerts.map((item) => (
+                <article key={`${item.courseCode}-${item.totalRecords}`} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.courseCode}</p>
+                    <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-amber-100">{item.percentage.toFixed(2)}%</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.totalRecords} captured records in the current teaching history.</p>
+                </article>
+              ))}
+              {!loading && state.alerts.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No attendance alerts are active right now.</div> : null}
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6">
           <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -204,7 +301,6 @@ export default function TeacherPage() {
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.createdAtUtc)}</p>
                 </article>
               ))}
-
               {!loading && state.notifications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No notifications are available yet.</div> : null}
             </div>
           </article>

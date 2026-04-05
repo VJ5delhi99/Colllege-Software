@@ -152,6 +152,29 @@ app.MapGet("/api/v1/analytics/summary", async (HttpContext httpContext, Attendan
     });
 }).RequirePermissions("attendance.view");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/summary", async (Guid teacherId, HttpContext httpContext, AttendanceDbContext dbContext) =>
+{
+    if (!TeacherAttendanceAccessPolicy.CanAccessTeacherAttendance(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var sessions = await dbContext.Sessions
+        .Where(x => x.TenantId == tenantId && x.ProfessorId == teacherId)
+        .OrderByDescending(x => x.StartedAtUtc)
+        .ToListAsync();
+    var sessionIds = sessions.Select(x => x.Id).ToArray();
+    var records = sessionIds.Length == 0
+        ? []
+        : await dbContext.AttendanceRecords
+            .Where(x => x.TenantId == tenantId && sessionIds.Contains(x.SessionId))
+            .OrderByDescending(x => x.CapturedAtUtc)
+            .ToListAsync();
+
+    return Results.Ok(TeacherAttendanceSummary.Create(sessions, records));
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, HttpContext httpContext, AttendanceDbContext dbContext) =>
 {
     var records = await dbContext.AttendanceRecords.Where(x => x.TenantId == httpContext.GetValidatedTenantId() && x.StudentId == studentId).ToListAsync();
@@ -282,4 +305,63 @@ public static class KnownUsers
 {
     public static readonly Guid StudentId = Guid.Parse("00000000-0000-0000-0000-000000000123");
     public static readonly Guid ProfessorId = Guid.Parse("00000000-0000-0000-0000-000000000456");
+}
+
+public sealed record TeacherAttendanceSummary(
+    int TotalSessions,
+    int ActiveSessions,
+    int RecordsCaptured,
+    double AttendancePercentage,
+    int LowAttendanceCourses,
+    TeacherAttendanceAlert[] Alerts)
+{
+    public static TeacherAttendanceSummary Create(
+        IReadOnlyCollection<AttendanceSession> sessions,
+        IReadOnlyCollection<AttendanceRecord> records)
+    {
+        var groupedAlerts = records
+            .GroupBy(item => item.CourseCode)
+            .Select(group =>
+            {
+                var total = group.Count();
+                var present = group.Count(item => item.Status == "Present");
+                var percentage = total == 0 ? 0 : Math.Round((double)present / total * 100, 2);
+                return new TeacherAttendanceAlert(group.Key, percentage, total);
+            })
+            .OrderBy(item => item.Percentage)
+            .ThenByDescending(item => item.TotalRecords)
+            .ToArray();
+
+        var totalRecords = records.Count;
+        var presentRecords = records.Count(item => item.Status == "Present");
+        return new TeacherAttendanceSummary(
+            sessions.Count,
+            sessions.Count(item => item.Status == "Active"),
+            totalRecords,
+            totalRecords == 0 ? 0 : Math.Round((double)presentRecords / totalRecords * 100, 2),
+            groupedAlerts.Count(item => item.TotalRecords > 0 && item.Percentage < 75),
+            groupedAlerts.Take(4).ToArray());
+    }
+}
+
+public sealed record TeacherAttendanceAlert(string CourseCode, double Percentage, int TotalRecords);
+
+public static class TeacherAttendanceAccessPolicy
+{
+    public static bool CanAccessTeacherAttendance(HttpContext httpContext, Guid requestedUserId)
+    {
+        var role = httpContext.User.FindFirst("role")?.Value
+            ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+            ?? string.Empty;
+
+        if (new[] { "Principal", "Admin", "DepartmentHead" }.Contains(role, StringComparer.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var currentUserId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? httpContext.User.FindFirst("sub")?.Value;
+
+        return Guid.TryParse(currentUserId, out var parsedUserId) && parsedUserId == requestedUserId;
+    }
 }

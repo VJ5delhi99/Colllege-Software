@@ -37,7 +37,7 @@ app.MapPost("/api/v1/courses", async (HttpContext httpContext, [FromBody] Create
     return Results.Created($"/api/v1/courses/{course.Id}", course);
 }).RequirePermissions("rbac.manage").RequireRateLimiting("api");
 
-app.MapGet("/api/v1/courses", async (HttpContext httpContext, AcademicDbContext dbContext, string? search, string? semesterCode, int page = 1, int pageSize = 20) =>
+app.MapGet("/api/v1/courses", async (HttpContext httpContext, AcademicDbContext dbContext, string? search, string? semesterCode, Guid? facultyId, int page = 1, int pageSize = 20) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
     page = Math.Max(page, 1);
@@ -52,6 +52,11 @@ app.MapGet("/api/v1/courses", async (HttpContext httpContext, AcademicDbContext 
     if (!string.IsNullOrWhiteSpace(semesterCode))
     {
         query = query.Where(x => x.SemesterCode == semesterCode);
+    }
+
+    if (facultyId.HasValue)
+    {
+        query = query.Where(x => x.FacultyId == facultyId.Value);
     }
 
     var total = await query.CountAsync();
