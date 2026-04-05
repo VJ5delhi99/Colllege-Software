@@ -257,6 +257,36 @@ export default function HomeScreen() {
         <AnimatedSurface
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 340, type: "timing", duration: 450 }}
+          style={{
+            borderRadius: 24,
+            padding: 20,
+            backgroundColor: "rgba(255,255,255,0.05)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.08)"
+          }}
+        >
+          <Text style={{ color: "#7dd3fc", fontSize: 13 }}>Role Workspaces</Text>
+          <Text style={{ color: "#e2e8f0", marginTop: 8 }}>
+            Mobile parity now extends beyond the student dashboard with dedicated teacher and admin summaries.
+          </Text>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Link href="/teacher" asChild>
+              <Pressable style={{ flex: 1, borderRadius: 18, backgroundColor: "rgba(34, 211, 238, 0.14)", paddingHorizontal: 14, paddingVertical: 14 }}>
+                <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>Teacher</Text>
+              </Pressable>
+            </Link>
+            <Link href="/admin" asChild>
+              <Pressable style={{ flex: 1, borderRadius: 18, backgroundColor: "rgba(217, 70, 239, 0.14)", paddingHorizontal: 14, paddingVertical: 14 }}>
+                <Text style={{ color: "#f5d0fe", fontWeight: "700", textAlign: "center" }}>Admin</Text>
+              </Pressable>
+            </Link>
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
           transition={{ delay: 420, type: "timing", duration: 450 }}
           style={{
             borderRadius: 24,

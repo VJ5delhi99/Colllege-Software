@@ -113,6 +113,26 @@ services:
       rabbitmq:
         condition: service_started
 
+  organization-service:
+    container_name: university360-organization-service
+    build:
+      context: ../..
+      dockerfile: services/organization-service/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__mysql: server=mysql;port=3306;database=university360;user=app;password=app123!
+      ConnectionStrings__redis: redis:6379
+      ConnectionStrings__rabbitmq: rabbitmq://rabbitmq
+    ports:
+      - "7018:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+
   attendance-service:
     container_name: university360-attendance-service
     build:
@@ -414,6 +434,8 @@ services:
         condition: service_started
       academic-service:
         condition: service_started
+      organization-service:
+        condition: service_started
       authorization-service:
         condition: service_started
       finance-service:
@@ -430,6 +452,7 @@ services:
       NEXT_PUBLIC_IDENTITY_API_URL: http://localhost:7001
       NEXT_PUBLIC_AUTHORIZATION_API_URL: http://localhost:7016
       NEXT_PUBLIC_ACADEMIC_API_URL: http://localhost:7002
+      NEXT_PUBLIC_ORGANIZATION_API_URL: http://localhost:7018
       NEXT_PUBLIC_ATTENDANCE_API_URL: http://localhost:7003
       NEXT_PUBLIC_COMMUNICATION_API_URL: http://localhost:7004
       NEXT_PUBLIC_FINANCE_API_URL: http://localhost:7006
@@ -444,6 +467,8 @@ services:
       authorization-service:
         condition: service_started
       academic-service:
+        condition: service_started
+      organization-service:
         condition: service_started
       attendance-service:
         condition: service_started
@@ -463,6 +488,7 @@ services:
       EXPO_PUBLIC_DEMO_MODE: "true"
       EXPO_PUBLIC_IDENTITY_API_URL: http://localhost:7001
       EXPO_PUBLIC_ACADEMIC_API_URL: http://localhost:7002
+      EXPO_PUBLIC_ORGANIZATION_API_URL: http://localhost:7018
       EXPO_PUBLIC_ATTENDANCE_API_URL: http://localhost:7003
       EXPO_PUBLIC_COMMUNICATION_API_URL: http://localhost:7004
       EXPO_PUBLIC_EXAM_API_URL: http://localhost:7005
@@ -474,6 +500,8 @@ services:
       identity-service:
         condition: service_started
       academic-service:
+        condition: service_started
+      organization-service:
         condition: service_started
       attendance-service:
         condition: service_started

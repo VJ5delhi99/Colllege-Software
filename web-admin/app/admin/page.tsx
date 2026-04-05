@@ -62,7 +62,7 @@ export default function AdminPage() {
           fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/dashboard/summary`, { headers }),
           fetch(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=20`, { headers }),
-          fetch(`${apiConfig.academic()}/api/v1/catalog/summary`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers })
         ]);
 

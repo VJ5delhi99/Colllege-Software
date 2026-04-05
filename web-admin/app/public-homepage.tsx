@@ -135,7 +135,7 @@ export default function PublicHomepage() {
     async function load() {
       try {
         const [catalogResponse, contentResponse] = await Promise.all([
-          fetch(`${apiConfig.academic()}/api/v1/public/homepage?tenantId=${tenantId}`),
+          fetch(`${apiConfig.organization()}/api/v1/public/homepage?tenantId=${tenantId}`),
           fetch(`${apiConfig.communication()}/api/v1/public/homepage?tenantId=${tenantId}`)
         ]);
 
@@ -181,7 +181,7 @@ export default function PublicHomepage() {
 
       setProgramLoading(true);
       try {
-        const response = await fetch(`${apiConfig.academic()}/api/v1/public/programs?${buildProgramQuery(deferredSearch, selectedCampus, selectedLevel)}`);
+        const response = await fetch(`${apiConfig.organization()}/api/v1/public/programs?${buildProgramQuery(deferredSearch, selectedCampus, selectedLevel)}`);
         if (!response.ok) {
           throw new Error("Program explorer is temporarily unavailable.");
         }

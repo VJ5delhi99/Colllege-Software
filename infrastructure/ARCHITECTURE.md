@@ -15,6 +15,7 @@
 - `identity-service`: tenant-aware authentication, refresh sessions, authorization-code exchange, federated provider hooks, passwordless delivery, TOTP MFA, and permission-bearing JWT issuance
 - `authorization-service`: centralized roles, permissions, user assignments, and route policy mappings
 - `academic-service`: curriculum, courses, credit units, semester scheduling
+- `organization-service`: colleges, campuses, departments, staff directory, and public academic catalog ownership
 - `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload and verification endpoints
 - `communication-service`: announcements, principal blogs, push notification orchestration
 - `exam-service`: assessment publication and GPA records
@@ -64,16 +65,16 @@ The current repository is stronger on service breadth than on end-to-end product
 
 To close the most visible product gaps without creating a parallel architecture, the platform now treats public discovery and admissions as first-class capabilities:
 
-- `academic-service` carries the live public organization catalog used by the website: colleges, campuses, featured programs, and catalog summary metrics
+- `organization-service` now carries the live public organization catalog used by the website: colleges, campuses, departments, featured programs, and catalog summary metrics
 - `communication-service` carries public homepage content and inquiry capture: announcement feed, ticker items, admissions contact data, and inquiry workflow
 - the web experience should consume those public endpoints directly so homepage sections are no longer maintained as disconnected static UI data
-- admin and operations pages should surface inquiry volume, status progression, and public-content health next to existing audit and communication views
+- admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, and public-content health next to existing audit and communication views
 
 ## Near-Term Architectural Follow-Up
 
-This still does not replace the planned dedicated organization service from the college-management blueprint. The recommended next refactor remains:
+The dedicated organization boundary is now extracted, but there is still follow-through work to finish:
 
-1. extract college, campus, department, and staff structure into a dedicated `organization-service`
-2. move academic catalog ownership to explicit program/course/offering boundaries
-3. keep `communication-service` focused on publication, notification, and inquiry orchestration
-4. promote the current public homepage contracts into gateway/BFF aggregation once the organization boundary exists
+1. move academic catalog ownership fully to explicit program/course/offering integration contracts between `organization-service` and `academic-service`
+2. keep shrinking legacy public-catalog duplication from transitional endpoints that still exist in `academic-service`
+3. extend `communication-service` from inquiry capture into fuller applicant counseling, document, and communication automation
+4. promote more of the public homepage contracts into gateway/BFF aggregation once the new organization boundary is the only source of truth

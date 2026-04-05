@@ -47,6 +47,16 @@ type InquirySummary = {
     qualified: number;
     offered: number;
   };
+  counseling?: {
+    total: number;
+    scheduled: number;
+    completed: number;
+  };
+  documents?: {
+    total: number;
+    pending: number;
+    verified: number;
+  };
 };
 
 type ApplicationItem = {
@@ -60,6 +70,29 @@ type ApplicationItem = {
   status: string;
   assignedTo: string;
   createdAtUtc: string;
+};
+
+type CounselingSessionItem = {
+  id: string;
+  applicationId: string;
+  applicantName: string;
+  programName: string;
+  campusName: string;
+  counselorName: string;
+  scheduledAtUtc: string;
+  modality: string;
+  status: string;
+  notes: string;
+};
+
+type PendingDocumentItem = {
+  id: string;
+  applicationId: string;
+  applicantName: string;
+  documentType: string;
+  status: string;
+  notes: string;
+  requestedAtUtc: string;
 };
 
 async function loadOptionalJson(url: string, headers: HeadersInit, enabled: boolean) {
@@ -163,6 +196,42 @@ const demoApplications: ApplicationItem[] = [
   }
 ];
 
+const demoCounselingSessions: CounselingSessionItem[] = [
+  {
+    id: "counseling-1",
+    applicationId: "application-1",
+    applicantName: "Riya Menon",
+    programName: "B.Tech Computer Science and Engineering",
+    campusName: "North City Campus",
+    counselorName: "Admissions Desk",
+    scheduledAtUtc: "2026-04-06T10:30:00Z",
+    modality: "Campus Visit",
+    status: "Scheduled",
+    notes: "Prospect asked for scholarship and hostel guidance."
+  }
+];
+
+const demoDocuments: PendingDocumentItem[] = [
+  {
+    id: "document-1",
+    applicationId: "application-1",
+    applicantName: "Riya Menon",
+    documentType: "Academic Transcript",
+    status: "Requested",
+    notes: "Waiting for upload",
+    requestedAtUtc: "2026-04-05T11:00:00Z"
+  },
+  {
+    id: "document-2",
+    applicationId: "application-2",
+    applicantName: "Aditya Rao",
+    documentType: "Transfer Certificate",
+    status: "Verified",
+    notes: "Initial review completed",
+    requestedAtUtc: "2026-04-04T11:00:00Z"
+  }
+];
+
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
@@ -180,7 +249,12 @@ function summarizeApplications(items: ApplicationItem[]) {
   };
 }
 
-function summarizeAdmissions(inquiries: InquiryItem[], applications: ApplicationItem[]): InquirySummary {
+function summarizeAdmissions(
+  inquiries: InquiryItem[],
+  applications: ApplicationItem[],
+  counselingSessions: CounselingSessionItem[] = [],
+  documents: PendingDocumentItem[] = []
+): InquirySummary {
   const latest =
     [...inquiries].sort((left, right) => new Date(right.createdAtUtc).getTime() - new Date(left.createdAtUtc).getTime())[0] ?? null;
 
@@ -189,7 +263,17 @@ function summarizeAdmissions(inquiries: InquiryItem[], applications: Application
     newItems: inquiries.filter((item) => item.status === "New").length,
     inReview: inquiries.filter((item) => item.status === "In Review").length,
     latest,
-    applications: summarizeApplications(applications)
+    applications: summarizeApplications(applications),
+    counseling: {
+      total: counselingSessions.length,
+      scheduled: counselingSessions.filter((item) => item.status === "Scheduled").length,
+      completed: counselingSessions.filter((item) => item.status === "Completed").length
+    },
+    documents: {
+      total: documents.length,
+      pending: documents.filter((item) => item.status === "Requested" || item.status === "Under Review").length,
+      verified: documents.filter((item) => item.status === "Verified").length
+    }
   };
 }
 
@@ -198,6 +282,8 @@ export default function OperationsPage() {
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [applications, setApplications] = useState<ApplicationItem[]>([]);
+  const [counselingSessions, setCounselingSessions] = useState<CounselingSessionItem[]>([]);
+  const [documents, setDocuments] = useState<PendingDocumentItem[]>([]);
   const [inquirySummary, setInquirySummary] = useState<InquirySummary>({ total: 0, newItems: 0, inReview: 0, latest: null });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,7 +302,9 @@ export default function OperationsPage() {
             setAuditLogs(demoAuditLogs);
             setInquiries(demoInquiries);
             setApplications(demoApplications);
-            setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications));
+            setCounselingSessions(demoCounselingSessions);
+            setDocuments(demoDocuments);
+            setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications, demoCounselingSessions, demoDocuments));
             setError(null);
           }
           return;
@@ -233,10 +321,12 @@ export default function OperationsPage() {
         const canViewAttendance = session.permissions.includes("attendance.view");
         const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, admissionsPayload, applicationsPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/inquiries?pageSize=8`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/applications?pageSize=8`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/counseling-sessions?pageSize=6`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/documents/pending?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/summary`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac),
@@ -261,13 +351,21 @@ export default function OperationsPage() {
           setNotifications((notificationsPayload?.items ?? []) as NotificationItem[]);
           const nextInquiries = (admissionsPayload?.items ?? []) as InquiryItem[];
           const nextApplications = (applicationsPayload?.items ?? []) as ApplicationItem[];
-          const remoteSummary = (admissionsSummaryPayload ?? { total: 0, newItems: 0, inReview: 0, latest: null }) as InquirySummary;
+          const nextCounselingSessions = (counselingPayload?.items ?? []) as CounselingSessionItem[];
+          const nextDocuments = (documentsPayload?.items ?? []) as PendingDocumentItem[];
+          const computedSummary = summarizeAdmissions(nextInquiries, nextApplications, nextCounselingSessions, nextDocuments);
+          const remoteSummary = (admissionsSummaryPayload ?? computedSummary) as InquirySummary;
           setInquiries(nextInquiries);
           setApplications(nextApplications);
+          setCounselingSessions(nextCounselingSessions);
+          setDocuments(nextDocuments);
           setInquirySummary({
+            ...computedSummary,
             ...remoteSummary,
-            latest: remoteSummary.latest ?? summarizeAdmissions(nextInquiries, nextApplications).latest,
-            applications: remoteSummary.applications ?? summarizeApplications(nextApplications)
+            latest: remoteSummary.latest ?? computedSummary.latest,
+            applications: remoteSummary.applications ?? computedSummary.applications,
+            counseling: remoteSummary.counseling ?? computedSummary.counseling,
+            documents: remoteSummary.documents ?? computedSummary.documents
           });
           setAuditLogs(mergedAuditLogs);
           setError(null);
@@ -303,7 +401,7 @@ export default function OperationsPage() {
         item.id === id ? { ...item, status, assignedTo: status === "In Review" ? "Admissions Desk" : item.assignedTo } : item
       );
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, applications));
+      setInquirySummary(summarizeAdmissions(nextInquiries, applications, counselingSessions, documents));
       return;
     }
 
@@ -330,7 +428,7 @@ export default function OperationsPage() {
       const payload = (await response.json()) as InquiryItem;
       const nextInquiries = inquiries.map((item) => (item.id === id ? payload : item));
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, applications));
+      setInquirySummary(summarizeAdmissions(nextInquiries, applications, counselingSessions, documents));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update the inquiry status.");
     } finally {
@@ -358,7 +456,7 @@ export default function OperationsPage() {
       );
       setApplications(nextApplications);
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications));
+      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications, counselingSessions, documents));
       return;
     }
 
@@ -391,7 +489,7 @@ export default function OperationsPage() {
       const nextInquiries = inquiries.map((entry) => (entry.id === item.id ? { ...entry, status: "Converted", assignedTo: session.user.email } : entry));
       setApplications(nextApplications);
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications));
+      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications, counselingSessions, documents));
     } catch (convertError) {
       setError(convertError instanceof Error ? convertError.message : "Unable to create an application from the inquiry.");
     } finally {
@@ -405,7 +503,7 @@ export default function OperationsPage() {
         item.id === id ? { ...item, status, stage, assignedTo: item.assignedTo || "Admissions Desk" } : item
       );
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, documents));
       return;
     }
 
@@ -433,9 +531,213 @@ export default function OperationsPage() {
       const payload = (await response.json()) as ApplicationItem;
       const nextApplications = applications.map((item) => (item.id === id ? payload : item));
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, documents));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update the application status.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function scheduleCounseling(item: ApplicationItem) {
+    if (demoMode) {
+      const nextSession: CounselingSessionItem = {
+        id: `counseling-${Date.now()}`,
+        applicationId: item.id,
+        applicantName: item.applicantName,
+        programName: item.programName,
+        campusName: item.campusName,
+        counselorName: item.assignedTo || "Admissions Desk",
+        scheduledAtUtc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        modality: "Campus Visit",
+        status: "Scheduled",
+        notes: "Auto-scheduled from operations hub demo."
+      };
+      const nextCounselingSessions = [nextSession, ...counselingSessions];
+      const nextApplications = applications.map((application) =>
+        application.id === item.id ? { ...application, status: application.status === "Submitted" ? "Under Review" : application.status, stage: "Counseling Scheduled" } : application
+      );
+      setCounselingSessions(nextCounselingSessions);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/counseling-sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          applicationId: item.id,
+          scheduledAtUtc: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          counselorName: session.user.email,
+          modality: "Campus Visit",
+          notes: "Scheduled from operations hub."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to schedule counseling.");
+      }
+
+      const payload = (await response.json()) as CounselingSessionItem;
+      const nextCounselingSessions = [payload, ...counselingSessions];
+      const nextApplications = applications.map((application) =>
+        application.id === item.id ? { ...application, status: application.status === "Submitted" ? "Under Review" : application.status, stage: "Counseling Scheduled", assignedTo: session.user.email } : application
+      );
+      setCounselingSessions(nextCounselingSessions);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to schedule counseling.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function updateCounselingStatus(id: string, status: string) {
+    if (demoMode) {
+      const nextCounselingSessions = counselingSessions.map((item) => (item.id === id ? { ...item, status } : item));
+      const completed = nextCounselingSessions.find((item) => item.id === id && status === "Completed");
+      const nextApplications =
+        completed !== undefined
+          ? applications.map((item) => (item.id === completed.applicationId ? { ...item, stage: "Document Verification", status: "Under Review" } : item))
+          : applications;
+      setCounselingSessions(nextCounselingSessions);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/counseling-sessions/${id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update counseling.");
+      }
+
+      const payload = (await response.json()) as CounselingSessionItem;
+      const nextCounselingSessions = counselingSessions.map((item) => (item.id === id ? payload : item));
+      const nextApplications =
+        status === "Completed"
+          ? applications.map((item) => (item.id === payload.applicationId ? { ...item, stage: "Document Verification", status: "Under Review" } : item))
+          : applications;
+      setCounselingSessions(nextCounselingSessions);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update counseling.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function requestDocument(item: ApplicationItem) {
+    if (demoMode) {
+      const nextDocument: PendingDocumentItem = {
+        id: `document-${Date.now()}`,
+        applicationId: item.id,
+        applicantName: item.applicantName,
+        documentType: "Academic Transcript",
+        status: "Requested",
+        notes: "Requested from admissions desk",
+        requestedAtUtc: new Date().toISOString()
+      };
+      const nextDocuments = [nextDocument, ...documents];
+      const nextApplications = applications.map((application) => (application.id === item.id ? { ...application, stage: "Document Verification" } : application));
+      setDocuments(nextDocuments);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/applications/${item.id}/documents`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          documentType: "Academic Transcript",
+          notes: "Requested from operations hub."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to request a document.");
+      }
+
+      const payload = (await response.json()) as PendingDocumentItem;
+      const nextDocuments = [payload, ...documents];
+      const nextApplications = applications.map((application) => (application.id === item.id ? { ...application, stage: "Document Verification" } : application));
+      setDocuments(nextDocuments);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to request a document.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function updateDocumentStatus(id: string, status: string) {
+    if (demoMode) {
+      const nextDocuments = documents.map((item) => (item.id === id ? { ...item, status } : item));
+      setDocuments(nextDocuments);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/documents/${id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update document verification.");
+      }
+
+      const payload = (await response.json()) as PendingDocumentItem;
+      const nextDocuments = documents.map((item) => (item.id === id ? payload : item));
+      const relatedDocuments = nextDocuments.filter((item) => item.applicationId === payload.applicationId);
+      const allVerified = relatedDocuments.length > 0 && relatedDocuments.every((item) => item.status === "Verified");
+      const nextApplications =
+        allVerified
+          ? applications.map((item) => (item.id === payload.applicationId ? { ...item, status: "Qualified", stage: "Ready For Offer Review" } : item))
+          : applications;
+      setDocuments(nextDocuments);
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update document verification.");
     } finally {
       setUpdatingInquiryId(null);
     }
@@ -512,6 +814,25 @@ export default function OperationsPage() {
           <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Offered</p>
             <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.applications?.offered ?? 0}</p>
+          </article>
+        </div>
+
+        <div className="mt-6 grid gap-5 md:grid-cols-4">
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Counseling</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.counseling?.total ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Scheduled</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.counseling?.scheduled ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Pending docs</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.documents?.pending ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Verified docs</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.documents?.verified ?? 0}</p>
           </article>
         </div>
 
@@ -603,6 +924,22 @@ export default function OperationsPage() {
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"
+                        onClick={() => scheduleCounseling(item)}
+                        disabled={updatingInquiryId === item.id}
+                        className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Working..." : "Schedule Counseling"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => requestDocument(item)}
+                        disabled={updatingInquiryId === item.id}
+                        className="rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Working..." : "Request Document"}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => updateApplicationStatus(item.id, "Under Review", "Document Verification")}
                         disabled={updatingInquiryId === item.id || item.status === "Under Review"}
                         className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
@@ -630,6 +967,96 @@ export default function OperationsPage() {
                 ))}
 
                 {!loading && applications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No admissions applications have been created yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Counseling</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Guidance and visit scheduling</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${counselingSessions.length} items`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {counselingSessions.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.applicantName}</p>
+                      <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-amber-100">
+                        {item.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.programName}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.campusName} | {item.modality}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
+                      {item.counselorName || "Admissions Desk"} | {formatTimestamp(item.scheduledAtUtc)}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateCounselingStatus(item.id, "Completed")}
+                        disabled={updatingInquiryId === item.id || item.status === "Completed"}
+                        className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Mark Completed"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!loading && counselingSessions.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No counseling sessions are scheduled yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Documents</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Applicant checklist verification</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${documents.length} items`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {documents.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.applicantName}</p>
+                      <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-cyan-100">
+                        {item.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.documentType}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.notes || "No notes added."}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.requestedAtUtc)}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateDocumentStatus(item.id, "Verified")}
+                        disabled={updatingInquiryId === item.id || item.status === "Verified"}
+                        className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Mark Verified"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDocumentStatus(item.id, "Under Review")}
+                        disabled={updatingInquiryId === item.id || item.status === "Under Review"}
+                        className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Needs Review"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!loading && documents.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No applicant documents are pending yet.</div> : null}
               </div>
             </section>
 

@@ -1,6 +1,7 @@
 const defaults = {
   EXPO_PUBLIC_IDENTITY_API_URL: "http://localhost:7001",
   EXPO_PUBLIC_ACADEMIC_API_URL: "http://localhost:7002",
+  EXPO_PUBLIC_ORGANIZATION_API_URL: "http://localhost:7018",
   EXPO_PUBLIC_ATTENDANCE_API_URL: "http://localhost:7003",
   EXPO_PUBLIC_COMMUNICATION_API_URL: "http://localhost:7004",
   EXPO_PUBLIC_EXAM_API_URL: "http://localhost:7005",
@@ -16,6 +17,7 @@ function getEnv(name: keyof typeof defaults): string {
 export const apiConfig = {
   identity: () => getEnv("EXPO_PUBLIC_IDENTITY_API_URL"),
   academic: () => getEnv("EXPO_PUBLIC_ACADEMIC_API_URL"),
+  organization: () => getEnv("EXPO_PUBLIC_ORGANIZATION_API_URL"),
   attendance: () => getEnv("EXPO_PUBLIC_ATTENDANCE_API_URL"),
   communication: () => getEnv("EXPO_PUBLIC_COMMUNICATION_API_URL"),
   exam: () => getEnv("EXPO_PUBLIC_EXAM_API_URL"),

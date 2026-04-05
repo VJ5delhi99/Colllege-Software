@@ -27,6 +27,7 @@ builder.Services.AddReverseProxy()
     });
 builder.Services.AddHttpClient("identity", c => c.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Identity"] ?? "http://identity-service:8080"));
 builder.Services.AddHttpClient("academic", c => c.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Academic"] ?? "http://academic-service:8080"));
+builder.Services.AddHttpClient("organization", c => c.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Organization"] ?? "http://organization-service:8080"));
 builder.Services.AddHttpClient("finance", c => c.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Finance"] ?? "http://finance-service:8080"));
 builder.Services.AddHttpClient("attendance", c => c.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Attendance"] ?? "http://attendance-service:8080"));
 builder.Services.AddHttpClient("communication", c => c.BaseAddress = new Uri(builder.Configuration["DownstreamServices:Communication"] ?? "http://communication-service:8080"));
@@ -82,12 +83,13 @@ app.MapGet("/bff/admin/overview", async (HttpContext httpContext, IHttpClientFac
     }
 
     var academic = await FetchAsync("academic", "/api/v1/dashboard/summary");
+    var organization = await FetchAsync("organization", "/api/v1/catalog/summary");
     var identity = await FetchAsync("identity", "/api/v1/users");
     var finance = await FetchAsync("finance", "/api/v1/payments/summary");
     var attendance = await FetchAsync("attendance", "/api/v1/analytics/summary");
     var communication = await FetchAsync("communication", "/api/v1/dashboard/summary");
 
-    return Results.Ok(new { academic, identity, finance, attendance, communication });
+    return Results.Ok(new { academic, organization, identity, finance, attendance, communication });
 }).RequirePermissions("analytics.view");
 
 app.MapReverseProxy(proxyPipeline =>

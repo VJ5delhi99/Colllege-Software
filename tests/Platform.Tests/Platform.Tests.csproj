@@ -13,5 +13,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\services\building-blocks\University360.BuildingBlocks\University360.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\services\communication-service\src\CommunicationService.Api\CommunicationService.Api.csproj" />
+    <ProjectReference Include="..\..\services\gateway-service\src\GatewayService.Api\GatewayService.Api.csproj" />
+    <ProjectReference Include="..\..\services\organization-service\src\OrganizationService.Api\OrganizationService.Api.csproj" />
   </ItemGroup>
 </Project>
