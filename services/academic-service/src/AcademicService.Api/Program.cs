@@ -99,6 +99,54 @@ app.MapGet("/api/v1/teachers/{teacherId:guid}/summary", async (Guid teacherId, H
     });
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/advising-notes", async (Guid teacherId, HttpContext httpContext, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.AdvisingNotes
+        .Where(x => x.TenantId == tenantId && x.TeacherId == teacherId)
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .ToListAsync();
+    return Results.Ok(new { items, total = items.Count });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/advising-notes", async (Guid teacherId, HttpContext httpContext, [FromBody] CreateAdvisingNoteRequest request, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    httpContext.EnsureTenantAccess(request.TenantId);
+    if (string.IsNullOrWhiteSpace(request.StudentName) || string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Note))
+    {
+        return Results.BadRequest(new { message = "Student name, title, and note are required." });
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var entry = new AdvisingNote
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        TeacherId = teacherId,
+        StudentName = request.StudentName.Trim(),
+        CourseCode = request.CourseCode?.Trim() ?? string.Empty,
+        Title = request.Title.Trim(),
+        Note = request.Note.Trim(),
+        FollowUpStatus = request.FollowUpStatus?.Trim() ?? "Open",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    dbContext.AdvisingNotes.Add(entry);
+    dbContext.AuditLogs.Add(AcademicAuditLog.Create(tenantId, "academic.advising-note.created", entry.Id.ToString(), httpContext.User.Identity?.Name ?? "academic-service", $"{entry.StudentName}:{entry.Title}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/teachers/{teacherId}/advising-notes/{entry.Id}", entry);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, AcademicDbContext dbContext, int page = 1, int pageSize = 20) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -163,6 +211,37 @@ static async Task SeedAcademicDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.AdvisingNotes.AnyAsync())
+    {
+        dbContext.AdvisingNotes.AddRange(
+        [
+            new AdvisingNote
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                StudentName = "Aarav Sharma",
+                CourseCode = "PHY201",
+                Title = "Attendance recovery plan",
+                Note = "Student should attend the next two lab sessions and submit the missed worksheet.",
+                FollowUpStatus = "Open",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2)
+            },
+            new AdvisingNote
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                StudentName = "Aarav Sharma",
+                CourseCode = "CSE401",
+                Title = "Exam readiness counseling",
+                Note = "Asked student to focus on replication strategies and consistency trade-offs before the review.",
+                FollowUpStatus = "Closed",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -193,6 +272,7 @@ public sealed record CreateCourseRequest(
     string DayOfWeek,
     string StartTime,
     string Room);
+public sealed record CreateAdvisingNoteRequest(string TenantId, string StudentName, string? CourseCode, string Title, string Note, string? FollowUpStatus);
 
 public sealed class Course
 {
@@ -231,9 +311,23 @@ public sealed class AcademicAuditLog
         };
 }
 
+public sealed class AdvisingNote
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid TeacherId { get; set; }
+    public string StudentName { get; set; } = string.Empty;
+    public string CourseCode { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+    public string FollowUpStatus { get; set; } = "Open";
+    public DateTimeOffset CreatedAtUtc { get; set; }
+}
+
 public sealed class AcademicDbContext(DbContextOptions<AcademicDbContext> options) : DbContext(options)
 {
     public DbSet<Course> Courses => Set<Course>();
+    public DbSet<AdvisingNote> AdvisingNotes => Set<AdvisingNote>();
     public DbSet<AcademicAuditLog> AuditLogs => Set<AcademicAuditLog>();
 }
 

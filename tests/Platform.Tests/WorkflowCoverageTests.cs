@@ -186,6 +186,61 @@ public sealed class WorkflowCoverageTests
     }
 
     [Fact]
+    public void StudentRequestSummary_CountsCertificateAndFulfillmentStates()
+    {
+        var summary = StudentRequestSummary.Create(
+            [
+                new StudentServiceRequest { RequestType = "Bonafide Letter", Status = "Submitted" },
+                new StudentServiceRequest { RequestType = "Transcript Certificate", Status = "Fulfilled", FulfillmentReference = "CERT-2026-1004" },
+                new StudentServiceRequest { RequestType = "Leave Request", Status = "Approved" }
+            ]);
+
+        summary.Total.Should().Be(3);
+        summary.Submitted.Should().Be(1);
+        summary.Approved.Should().Be(1);
+        summary.Fulfilled.Should().Be(1);
+        summary.CertificateRequests.Should().Be(2);
+    }
+
+    [Fact]
+    public void GradeReviewSummary_CountsTeacherWorkflowStages()
+    {
+        var summary = GradeReviewSummary.Create(
+            [
+                new GradeReviewItem { Status = "Pending Review" },
+                new GradeReviewItem { Status = "Ready To Publish" },
+                new GradeReviewItem { Status = "Published" }
+            ]);
+
+        summary.Total.Should().Be(3);
+        summary.Pending.Should().Be(1);
+        summary.ReadyToPublish.Should().Be(1);
+        summary.Published.Should().Be(1);
+        summary.Items.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void AdvisingNote_RetainsFacultyFollowUpMetadata()
+    {
+        var createdAtUtc = DateTimeOffset.UtcNow;
+        var note = new AdvisingNote
+        {
+            TeacherId = Guid.NewGuid(),
+            StudentName = "Aarav Sharma",
+            CourseCode = "CSE401",
+            Title = "Exam readiness counseling",
+            Note = "Recommended focused practice on consistency models before the next internal review.",
+            FollowUpStatus = "Open",
+            CreatedAtUtc = createdAtUtc
+        };
+
+        note.CourseCode.Should().Be("CSE401");
+        note.Title.Should().Be("Exam readiness counseling");
+        note.FollowUpStatus.Should().Be("Open");
+        note.CreatedAtUtc.Should().Be(createdAtUtc);
+    }
+
+    [Fact]
     public void TeacherAttendanceSummary_FlagsLowAttendanceCourses()
     {
         var sessionId = Guid.NewGuid();

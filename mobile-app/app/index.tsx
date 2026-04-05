@@ -77,6 +77,7 @@ function formatTimestamp(value: string) {
 export default function HomeScreen() {
   const [state, setState] = useState(initialState);
   const [resetting, setResetting] = useState(false);
+  const [requesting, setRequesting] = useState<string | null>(null);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -174,6 +175,62 @@ export default function HomeScreen() {
       error: null
     });
     setResetting(false);
+  }
+
+  async function submitStudentRequest(requestType: string, title: string, description: string) {
+    setRequesting(requestType);
+
+    try {
+      if (demoMode) {
+        setState((current) => {
+          const nextOpen = Number.parseInt(current.requests, 10);
+          return {
+            ...current,
+            requests: `${Number.isNaN(nextOpen) ? 1 : nextOpen + 1} Open`,
+            studentOpsTitle: title,
+            studentOpsMeta: `${requestType} | Submitted`
+          };
+        });
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.student()}/api/v1/students/${session.user.id}/requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          requestType,
+          title,
+          description
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to submit student request.");
+      }
+
+      setState((current) => {
+        const nextOpen = Number.parseInt(current.requests, 10);
+        return {
+          ...current,
+          requests: `${Number.isNaN(nextOpen) ? 1 : nextOpen + 1} Open`,
+          studentOpsTitle: title,
+          studentOpsMeta: `${requestType} | Submitted`
+        };
+      });
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Student request submission is unavailable right now."
+      }));
+    } finally {
+      setRequesting(null);
+    }
   }
 
   const tiles = [
@@ -346,6 +403,22 @@ export default function HomeScreen() {
           <Text style={{ color: "#dcfce7", marginTop: 10 }}>
             {state.studentOpsMeta}
           </Text>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Pressable
+              onPress={() => submitStudentRequest("Bonafide Letter", "Need bonafide letter for internship verification", "Requested from the mobile student cockpit.")}
+              disabled={requesting !== null}
+              style={{ flex: 1, borderRadius: 18, backgroundColor: "rgba(187, 247, 208, 0.16)", paddingHorizontal: 14, paddingVertical: 14 }}
+            >
+              <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>{requesting === "Bonafide Letter" ? "Submitting..." : "Bonafide"}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => submitStudentRequest("Transcript Certificate", "Official transcript for graduate application", "Requested from the mobile student cockpit.")}
+              disabled={requesting !== null}
+              style={{ flex: 1, borderRadius: 18, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 14, paddingVertical: 14 }}
+            >
+              <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>{requesting === "Transcript Certificate" ? "Submitting..." : "Transcript"}</Text>
+            </Pressable>
+          </View>
         </AnimatedSurface>
 
         <AnimatedSurface

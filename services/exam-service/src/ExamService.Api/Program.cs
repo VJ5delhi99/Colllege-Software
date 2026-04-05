@@ -94,6 +94,44 @@ app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, H
     });
 }).RequireRoles("Student", "Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/grading-summary", async (Guid teacherId, HttpContext httpContext, ExamDbContext dbContext) =>
+{
+    if (!CanAccessTeacherWorkspace(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.GradeReviews
+        .Where(x => x.TenantId == tenantId && x.TeacherId == teacherId)
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .ToListAsync();
+    return Results.Ok(GradeReviewSummary.Create(items));
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/grade-reviews/{id:guid}/status", async (Guid teacherId, Guid id, HttpContext httpContext, [FromBody] UpdateGradeReviewStatusRequest request, ExamDbContext dbContext) =>
+{
+    if (!CanAccessTeacherWorkspace(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var review = await dbContext.GradeReviews.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId && x.TeacherId == teacherId);
+    if (review is null)
+    {
+        return Results.NotFound();
+    }
+
+    review.Status = request.Status.Trim();
+    review.ReviewerNote = request.ReviewerNote?.Trim() ?? review.ReviewerNote;
+    review.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(ExamAuditLog.Create(tenantId, "exam.grade-review.status-updated", review.Id.ToString(), httpContext.User.Identity?.Name ?? "exam-service", $"{review.CourseCode}:{review.Status}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(review);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, ExamDbContext dbContext, int page = 1, int pageSize = 20) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -140,6 +178,39 @@ static async Task SeedExamDataAsync(WebApplication app)
         }
     ]);
 
+    if (!await dbContext.GradeReviews.AnyAsync())
+    {
+        dbContext.GradeReviews.AddRange(
+        [
+            new GradeReviewItem
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                StudentName = "Aarav Sharma",
+                CourseCode = "CSE401",
+                AssessmentName = "Lab Evaluation 1",
+                Status = "Pending Review",
+                ReviewerNote = "Need to double-check the replication diagram rubric.",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2)
+            },
+            new GradeReviewItem
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                StudentName = "Aarav Sharma",
+                CourseCode = "PHY201",
+                AssessmentName = "Internal Quiz 2",
+                Status = "Ready To Publish",
+                ReviewerNote = "Moderation completed.",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -160,7 +231,40 @@ static bool CanAccessStudentRecord(HttpContext httpContext, Guid requestedUserId
     return Guid.TryParse(currentUserId, out var parsedUserId) && parsedUserId == requestedUserId;
 }
 
+static bool CanAccessTeacherWorkspace(HttpContext httpContext, Guid requestedUserId)
+{
+    var role = httpContext.User.FindFirst("role")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+        ?? string.Empty;
+
+    if (new[] { "Principal", "Admin", "DepartmentHead" }.Contains(role, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var currentUserId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.User.FindFirst("sub")?.Value;
+
+    return Guid.TryParse(currentUserId, out var parsedUserId) && parsedUserId == requestedUserId;
+}
+
 public sealed record PublishResultRequest(string TenantId, Guid StudentId, string SemesterCode, decimal Gpa, bool Published);
+public sealed record UpdateGradeReviewStatusRequest(string Status, string? ReviewerNote);
+public sealed record GradeReviewSummary(
+    int Total,
+    int Pending,
+    int ReadyToPublish,
+    int Published,
+    GradeReviewItem[] Items)
+{
+    public static GradeReviewSummary Create(IReadOnlyCollection<GradeReviewItem> items) =>
+        new(
+            items.Count,
+            items.Count(item => item.Status == "Pending Review"),
+            items.Count(item => item.Status == "Ready To Publish"),
+            items.Count(item => item.Status == "Published"),
+            items.ToArray());
+}
 
 public sealed class StudentResult
 {
@@ -171,6 +275,20 @@ public sealed class StudentResult
     public decimal Gpa { get; set; }
     public bool Published { get; set; }
     public DateTimeOffset? PublishedAtUtc { get; set; }
+}
+
+public sealed class GradeReviewItem
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid TeacherId { get; set; }
+    public string StudentName { get; set; } = string.Empty;
+    public string CourseCode { get; set; } = string.Empty;
+    public string AssessmentName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Pending Review";
+    public string ReviewerNote { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
 public sealed class ExamAuditLog
@@ -199,10 +317,12 @@ public sealed class ExamAuditLog
 public sealed class ExamDbContext(DbContextOptions<ExamDbContext> options) : DbContext(options)
 {
     public DbSet<StudentResult> StudentResults => Set<StudentResult>();
+    public DbSet<GradeReviewItem> GradeReviews => Set<GradeReviewItem>();
     public DbSet<ExamAuditLog> AuditLogs => Set<ExamAuditLog>();
 }
 
 public static class KnownUsers
 {
     public static readonly Guid StudentId = Guid.Parse("00000000-0000-0000-0000-000000000123");
+    public static readonly Guid ProfessorId = Guid.Parse("00000000-0000-0000-0000-000000000456");
 }

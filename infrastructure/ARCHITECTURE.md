@@ -14,14 +14,14 @@
 
 - `identity-service`: tenant-aware authentication, refresh sessions, authorization-code exchange, federated provider hooks, passwordless delivery, TOTP MFA, and permission-bearing JWT issuance
 - `authorization-service`: centralized roles, permissions, user assignments, and route policy mappings
-- `academic-service`: curriculum, courses, credit units, semester scheduling
+- `academic-service`: curriculum, courses, credit units, semester scheduling, and faculty advising-note workflows
 - `organization-service`: colleges, campuses, departments, staff directory, and public academic catalog ownership
 - `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload and verification endpoints
 - `communication-service`: announcements, principal blogs, push notification orchestration
-- `exam-service`: assessment publication and GPA records
+- `exam-service`: assessment publication, GPA records, and teacher grading-review progression
 - `finance-service`: payment recording, provider-aware payment sessions, HMAC webhook processing, refunds, reconciliation runs
 - `ai-assistant-service`: role-aware natural-language assistant with Semantic Kernel orchestration, typed service integrations, and RAG hooks
-- `student-service`: student profiles, department mapping, academic status
+- `student-service`: student profiles, department mapping, academic status, enrollments, and request-fulfillment workflows
 - `hostel-service`: rooms, allocations, visitor logs
 - `transport-service`: routes and GPS tracking boundary
 - `placement-service`: drives, interviews, placement analytics
@@ -70,6 +70,8 @@ To close the most visible product gaps without creating a parallel architecture,
 - `communication-service` now also owns admissions automation rules that flag stale applications and delayed checklist items into reminder/escalation work
 - the web experience should consume those public endpoints directly so homepage sections are no longer maintained as disconnected static UI data
 - admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, applicant follow-ups, reminder queues, and public-content health next to existing audit and communication views
+- student-service should carry explicit request-fulfillment states so student and admin/mobile surfaces can share the same certificate and document-service workflow model
+- academic-service and exam-service should expose teacher-scoped advising and grading actions so faculty experiences are operational, not only observational
 - production-facing admin views should also surface federation and payment rollout readiness so release risk is not hidden inside appsettings only
 
 ## Near-Term Architectural Follow-Up

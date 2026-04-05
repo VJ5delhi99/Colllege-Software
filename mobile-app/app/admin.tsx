@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, ScrollView, Text, View } from "react-native";
+import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { AnimatedSurface } from "../components/AnimatedSurface";
 import { getStudentSession } from "./auth-client";
 import { apiConfig } from "./api-config";
@@ -12,6 +12,16 @@ type FollowUpItem = {
   meta: string;
 };
 
+type StudentRequestItem = {
+  id: string;
+  title: string;
+  requestType: string;
+  status: string;
+  assignedTo?: string;
+  fulfillmentReference?: string;
+  studentId?: string;
+};
+
 type AdminState = {
   campuses: number;
   programs: number;
@@ -22,6 +32,7 @@ type AdminState = {
   openReminders: number;
   feeCollection: number;
   followUps: FollowUpItem[];
+  studentRequests: StudentRequestItem[];
   error: string | null;
 };
 
@@ -48,6 +59,25 @@ const demoState: AdminState = {
       meta: "Open until tomorrow 09:00"
     }
   ],
+  studentRequests: [
+    {
+      id: "request-1",
+      title: "Need bonafide letter for internship verification",
+      requestType: "Bonafide Letter",
+      status: "Submitted",
+      assignedTo: "Student Services Desk",
+      studentId: "00000000-0000-0000-0000-000000000123"
+    },
+    {
+      id: "request-2",
+      title: "Official transcript for graduate application",
+      requestType: "Transcript Certificate",
+      status: "Approved",
+      assignedTo: "Examination Cell",
+      fulfillmentReference: "CERT-2026-1004",
+      studentId: "00000000-0000-0000-0000-000000000123"
+    }
+  ],
   error: null
 };
 
@@ -57,6 +87,7 @@ function formatMoney(value: number) {
 
 export default function AdminMobilePage() {
   const [state, setState] = useState<AdminState>(demoState);
+  const [updatingRequestId, setUpdatingRequestId] = useState<string | null>(null);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -71,23 +102,25 @@ export default function AdminMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, financeResponse] = await Promise.all([
+        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse] = await Promise.all([
           fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=3`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/reminders?pageSize=3`, { headers }),
+          fetch(`${apiConfig.student()}/api/v1/requests?pageSize=3`, { headers }),
           fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers })
         ]);
 
-        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !financeResponse.ok) {
+        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok) {
           throw new Error("Admin mobile workspace is unavailable.");
         }
 
-        const [organization, admissions, communicationsPayload, remindersPayload, finance] = await Promise.all([
+        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance] = await Promise.all([
           organizationResponse.json(),
           admissionsResponse.json(),
           communicationsResponse.json(),
           remindersResponse.json(),
+          requestsResponse.json(),
           financeResponse.json()
         ]);
         const followUps: FollowUpItem[] = [
@@ -114,6 +147,7 @@ export default function AdminMobilePage() {
           openReminders: admissions?.reminders?.open ?? 0,
           feeCollection: finance?.totalCollected ?? 0,
           followUps,
+          studentRequests: requestsPayload?.items ?? [],
           error: null
         });
       })
@@ -133,6 +167,61 @@ export default function AdminMobilePage() {
     { label: "Follow-Ups", value: state.communications.toString() },
     { label: "Open Reminders", value: state.openReminders.toString() }
   ];
+
+  async function updateStudentRequestStatus(item: StudentRequestItem, status: string) {
+    setUpdatingRequestId(item.id);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          studentRequests: current.studentRequests.map((request) =>
+            request.id === item.id
+              ? {
+                  ...request,
+                  status,
+                  fulfillmentReference: status === "Fulfilled" ? request.fulfillmentReference ?? "CERT-DEMO-1001" : request.fulfillmentReference
+                }
+              : request
+          )
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.student()}/api/v1/requests/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          assignedTo: item.assignedTo ?? "Student Services Desk",
+          resolutionNote: status === "Approved" ? "Approved for processing from mobile admin." : "Fulfilled from the mobile admin workspace.",
+          fulfillmentReference: status === "Fulfilled" ? item.fulfillmentReference ?? `CERT-${new Date().getFullYear()}-2001` : item.fulfillmentReference
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update student request.");
+      }
+
+      const payload = (await response.json()) as StudentRequestItem;
+      setState((current) => ({
+        ...current,
+        studentRequests: current.studentRequests.map((request) => (request.id === item.id ? { ...request, ...payload } : request))
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Student request approval is unavailable right now."
+      }));
+    } finally {
+      setUpdatingRequestId(null);
+    }
+  }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#07111f" }}>
@@ -193,6 +282,46 @@ export default function AdminMobilePage() {
               <View style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
                 <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>No follow-up activity yet</Text>
                 <Text style={{ color: "#d8b4fe", marginTop: 6 }}>Admissions communication and reminders will appear here once the queue starts moving.</Text>
+              </View>
+            ) : null}
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 320, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <Text style={{ color: "#f5d0fe", fontSize: 13 }}>Student Request Fulfillment</Text>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.studentRequests.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#fbcfe8", marginTop: 6 }}>{item.requestType} | {item.status}</Text>
+                {item.fulfillmentReference ? <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>Reference {item.fulfillmentReference}</Text> : null}
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => updateStudentRequestStatus(item, "Approved")}
+                    disabled={updatingRequestId === item.id || item.status === "Approved" || item.status === "Fulfilled"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: updatingRequestId === item.id || item.status === "Approved" || item.status === "Fulfilled" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>{updatingRequestId === item.id ? "Working..." : "Approve"}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => updateStudentRequestStatus(item, "Fulfilled")}
+                    disabled={updatingRequestId === item.id || item.status === "Fulfilled"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(187, 247, 208, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: updatingRequestId === item.id || item.status === "Fulfilled" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>{updatingRequestId === item.id ? "Working..." : "Fulfill"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {state.studentRequests.length === 0 ? (
+              <View style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>No student requests pending</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 6 }}>Certificate and service approvals will appear here once students raise them.</Text>
               </View>
             ) : null}
           </View>

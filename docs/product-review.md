@@ -28,13 +28,14 @@ The repository already had strong service coverage, but the shipped experience s
 - Added federation readiness reporting, callback-based federated sign-in completion, payment-provider rollout readiness, and stronger production validation around those configuration seams.
 - Updated the admin workspace so automation risk and rollout-readiness signals are visible beside catalog, finance, and inquiry metrics.
 - Added student self-service workflows and richer workspace context so requests, enrollments, and learning content are visible in both web and mobile student experiences.
-- Expanded the teacher surface to include owned courses, attendance-risk alerts, active session visibility, and LMS workload instead of only generic summary numbers.
+- Expanded the teacher surface to include owned courses, attendance-risk alerts, active session visibility, LMS workload, grading-state actions, and advising-note capture instead of only generic summary numbers.
+- Added end-to-end certificate-style request fulfillment support so student requests can move from submission to approval and issuance with visible fulfillment references across student and admin surfaces.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
 
 - Replace one-file minimal-API service implementations with cleaner internal boundaries in the highest-change services.
 - Add richer admissions automation such as templated outreach, deeper escalation policies, and counselor workload orchestration.
-- Expand the mobile app so the refreshed public and operations patterns have deeper workflow parity, not just executive visibility.
+- Expand the mobile app beyond the current student request, teacher grading/advising, and admin follow-up actions so more transactional workflows reach parity with the web.
 - Add deeper automated coverage for the public discovery, admissions, and cross-service role workflows.
 - Finish production rollout concerns such as external SSO federation, live payment credentials, and managed secret providers.

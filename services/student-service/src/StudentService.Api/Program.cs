@@ -84,6 +84,29 @@ app.MapGet("/api/v1/students/{id:guid}/requests", async (Guid id, HttpContext ht
     return Results.Ok(new { items, total = items.Count });
 }).RequireRoles("Student", "Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/requests/summary", async (HttpContext httpContext, StudentDbContext db) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var requests = await db.ServiceRequests.Where(x => x.TenantId == tenantId).ToListAsync();
+    return Results.Ok(StudentRequestSummary.Create(requests));
+}).RequireRoles("Principal", "Admin", "DepartmentHead");
+
+app.MapGet("/api/v1/requests", async (HttpContext httpContext, StudentDbContext db, string? status, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = db.ServiceRequests.Where(x => x.TenantId == tenantId);
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        query = query.Where(x => x.Status == status);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderByDescending(x => x.RequestedAtUtc).Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { items, page = safePage, pageSize = safePageSize, total });
+}).RequireRoles("Principal", "Admin", "DepartmentHead");
+
 app.MapPost("/api/v1/students/{id:guid}/requests", async (Guid id, HttpContext httpContext, [FromBody] CreateStudentRequest request, StudentDbContext db) =>
 {
     if (!StudentAccessPolicy.CanAccessStudentWorkspace(httpContext, id))
@@ -113,6 +136,7 @@ app.MapPost("/api/v1/students/{id:guid}/requests", async (Guid id, HttpContext h
         Title = request.Title.Trim(),
         Description = request.Description?.Trim() ?? string.Empty,
         Status = "Submitted",
+        AssignedTo = request.AssignedTo?.Trim() ?? "Student Services Desk",
         RequestedAtUtc = DateTimeOffset.UtcNow
     };
 
@@ -130,6 +154,35 @@ app.MapPost("/api/v1/students/{id:guid}/requests", async (Guid id, HttpContext h
     await db.SaveChangesAsync();
     return Results.Created($"/api/v1/students/{id}/requests/{serviceRequest.Id}", serviceRequest);
 }).RequireRoles("Student", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/requests/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateStudentRequestStatusRequest request, StudentDbContext db) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var serviceRequest = await db.ServiceRequests.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (serviceRequest is null)
+    {
+        return Results.NotFound();
+    }
+
+    serviceRequest.Status = request.Status.Trim();
+    serviceRequest.AssignedTo = request.AssignedTo?.Trim() ?? serviceRequest.AssignedTo;
+    serviceRequest.ResolutionNote = request.ResolutionNote?.Trim() ?? serviceRequest.ResolutionNote;
+    serviceRequest.FulfillmentReference = request.FulfillmentReference?.Trim() ?? serviceRequest.FulfillmentReference;
+    serviceRequest.ResolvedAtUtc = request.Status is "Approved" or "Fulfilled" ? DateTimeOffset.UtcNow : serviceRequest.ResolvedAtUtc;
+
+    db.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "student.request.status-updated",
+        EntityId = serviceRequest.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "student-services",
+        Details = $"{serviceRequest.RequestType}:{serviceRequest.Status}",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+    await db.SaveChangesAsync();
+    return Results.Ok(serviceRequest);
+}).RequireRoles("Principal", "Admin", "DepartmentHead");
 
 app.MapPost("/api/v1/enrollments", async (HttpContext httpContext, [FromBody] EnrollmentRequest request, StudentDbContext db) =>
 {
@@ -240,6 +293,7 @@ static async Task SeedAsync(WebApplication app)
                 Title = "Need bonafide letter for internship verification",
                 Description = "Request raised for the internship onboarding packet.",
                 Status = "Submitted",
+                AssignedTo = "Student Services Desk",
                 RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-2)
             },
             new StudentServiceRequest
@@ -251,7 +305,23 @@ static async Task SeedAsync(WebApplication app)
                 Title = "Medical leave for lab session",
                 Description = "Attendance consideration requested with medical note.",
                 Status = "In Review",
+                AssignedTo = "Department Office",
                 RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            },
+            new StudentServiceRequest
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                StudentId = Guid.Parse("00000000-0000-0000-0000-000000000123"),
+                RequestType = "Transcript Certificate",
+                Title = "Official transcript for graduate application",
+                Description = "Certificate request is approved and ready for pickup.",
+                Status = "Fulfilled",
+                AssignedTo = "Examination Cell",
+                ResolutionNote = "Printed transcript is available at the examination counter.",
+                FulfillmentReference = "CERT-2026-1004",
+                RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-6),
+                ResolvedAtUtc = DateTimeOffset.UtcNow.AddDays(-4)
             }
         ]);
     }
@@ -260,7 +330,25 @@ static async Task SeedAsync(WebApplication app)
 }
 
 public sealed record EnrollmentRequest(string TenantId, Guid StudentId, string CourseCode, string SemesterCode, string Status);
-public sealed record CreateStudentRequest(string TenantId, string RequestType, string Title, string? Description);
+public sealed record CreateStudentRequest(string TenantId, string RequestType, string Title, string? Description, string? AssignedTo = null);
+public sealed record UpdateStudentRequestStatusRequest(string Status, string? ResolutionNote, string? FulfillmentReference, string? AssignedTo);
+public sealed record StudentRequestSummary(
+    int Total,
+    int Submitted,
+    int InReview,
+    int Approved,
+    int Fulfilled,
+    int CertificateRequests)
+{
+    public static StudentRequestSummary Create(IReadOnlyCollection<StudentServiceRequest> requests) =>
+        new(
+            requests.Count,
+            requests.Count(item => item.Status == "Submitted"),
+            requests.Count(item => item.Status == "In Review"),
+            requests.Count(item => item.Status == "Approved"),
+            requests.Count(item => item.Status == "Fulfilled"),
+            requests.Count(item => item.RequestType.Contains("Letter", StringComparison.OrdinalIgnoreCase) || item.RequestType.Contains("Certificate", StringComparison.OrdinalIgnoreCase)));
+}
 
 public sealed class StudentRecord
 {
@@ -293,7 +381,11 @@ public sealed class StudentServiceRequest
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string Status { get; set; } = "Submitted";
+    public string AssignedTo { get; set; } = string.Empty;
+    public string ResolutionNote { get; set; } = string.Empty;
+    public string FulfillmentReference { get; set; } = string.Empty;
     public DateTimeOffset RequestedAtUtc { get; set; }
+    public DateTimeOffset? ResolvedAtUtc { get; set; }
 }
 
 public sealed class AuditLogEntry

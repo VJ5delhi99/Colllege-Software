@@ -20,7 +20,11 @@ type ServiceRequestItem = {
   title: string;
   description: string;
   status: string;
+  assignedTo?: string;
+  resolutionNote?: string;
+  fulfillmentReference?: string;
   requestedAtUtc: string;
+  resolvedAtUtc?: string | null;
 };
 
 type StudentState = {
@@ -68,15 +72,20 @@ const demoState: StudentState = {
       title: "Need bonafide letter for internship verification",
       description: "Request raised for the internship onboarding packet.",
       status: "Submitted",
+      assignedTo: "Student Services Desk",
       requestedAtUtc: "2026-04-03T10:00:00Z"
     },
     {
       id: "request-2",
-      requestType: "Leave Request",
-      title: "Medical leave for lab session",
-      description: "Attendance consideration requested with medical note.",
-      status: "In Review",
-      requestedAtUtc: "2026-04-04T13:30:00Z"
+      requestType: "Transcript Certificate",
+      title: "Official transcript for graduate application",
+      description: "Certificate request is approved and ready for pickup.",
+      status: "Fulfilled",
+      assignedTo: "Examination Cell",
+      resolutionNote: "Printed transcript is available at the examination counter.",
+      fulfillmentReference: "CERT-2026-1004",
+      requestedAtUtc: "2026-04-02T09:00:00Z",
+      resolvedAtUtc: "2026-04-04T14:00:00Z"
     }
   ],
   notifications: [
@@ -403,7 +412,11 @@ export default function StudentPage() {
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-400">{item.requestType}</p>
                   <p className="mt-2 text-sm leading-6 text-slate-400">{item.description}</p>
+                  {item.assignedTo ? <p className="mt-2 text-sm leading-6 text-slate-400">Assigned to: {item.assignedTo}</p> : null}
+                  {item.resolutionNote ? <p className="mt-2 text-sm leading-6 text-emerald-200">{item.resolutionNote}</p> : null}
+                  {item.fulfillmentReference ? <p className="mt-2 text-sm leading-6 text-cyan-200">Reference: {item.fulfillmentReference}</p> : null}
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.requestedAtUtc)}</p>
+                  {item.resolvedAtUtc ? <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200">Resolved {formatTimestamp(item.resolvedAtUtc)}</p> : null}
                 </article>
               ))}
             </div>

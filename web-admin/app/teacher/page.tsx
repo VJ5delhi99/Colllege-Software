@@ -22,6 +22,25 @@ type AttendanceAlert = {
   totalRecords: number;
 };
 
+type GradeReviewItem = {
+  id: string;
+  studentName: string;
+  courseCode: string;
+  assessmentName: string;
+  status: string;
+  reviewerNote: string;
+};
+
+type AdvisingNoteItem = {
+  id: string;
+  studentName: string;
+  courseCode: string;
+  title: string;
+  note: string;
+  followUpStatus: string;
+  createdAtUtc: string;
+};
+
 type TeacherState = {
   attendancePercentage: number;
   totalCourses: number;
@@ -31,8 +50,12 @@ type TeacherState = {
   lowAttendanceCourses: number;
   lmsMaterials: number;
   lmsAssignments: number;
+  gradingPending: number;
+  gradingReady: number;
   ownedCourses: CourseItem[];
   alerts: AttendanceAlert[];
+  gradeReviews: GradeReviewItem[];
+  advisingNotes: AdvisingNoteItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
 };
 
@@ -45,6 +68,8 @@ const demoState: TeacherState = {
   lowAttendanceCourses: 1,
   lmsMaterials: 2,
   lmsAssignments: 2,
+  gradingPending: 1,
+  gradingReady: 1,
   ownedCourses: [
     { id: "course-1", courseCode: "CSE401", title: "Distributed Systems", semesterCode: "2026-SPRING", dayOfWeek: "Monday", startTime: "02:00 PM", room: "B-204" },
     { id: "course-2", courseCode: "PHY201", title: "Physics", semesterCode: "2026-SPRING", dayOfWeek: "Tuesday", startTime: "10:00 AM", room: "Lab-2" },
@@ -53,6 +78,14 @@ const demoState: TeacherState = {
   alerts: [
     { courseCode: "PHY201", percentage: 66.67, totalRecords: 3 },
     { courseCode: "CSE401", percentage: 100, totalRecords: 2 }
+  ],
+  gradeReviews: [
+    { id: "grade-1", studentName: "Aarav Sharma", courseCode: "CSE401", assessmentName: "Lab Evaluation 1", status: "Pending Review", reviewerNote: "Need to double-check the replication diagram rubric." },
+    { id: "grade-2", studentName: "Aarav Sharma", courseCode: "PHY201", assessmentName: "Internal Quiz 2", status: "Ready To Publish", reviewerNote: "Moderation completed." }
+  ],
+  advisingNotes: [
+    { id: "note-1", studentName: "Aarav Sharma", courseCode: "PHY201", title: "Attendance recovery plan", note: "Student should attend the next two lab sessions and submit the missed worksheet.", followUpStatus: "Open", createdAtUtc: "2026-04-03T09:30:00Z" },
+    { id: "note-2", studentName: "Aarav Sharma", courseCode: "CSE401", title: "Exam readiness counseling", note: "Asked student to focus on replication strategies and consistency trade-offs before the review.", followUpStatus: "Closed", createdAtUtc: "2026-04-04T12:00:00Z" }
   ],
   notifications: [
     {
@@ -81,6 +114,7 @@ export default function TeacherPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -103,22 +137,26 @@ export default function TeacherPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse] = await Promise.all([
+        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
-          fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers })
+          fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/grading-summary`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers })
         ]);
 
-        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok) {
+        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok) {
           throw new Error("Unable to load the teacher workspace.");
         }
 
-        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload] = await Promise.all([
+        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload] = await Promise.all([
           teacherSummaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
-          notificationsResponse.json()
+          notificationsResponse.json(),
+          gradingResponse.json(),
+          advisingResponse.json()
         ]);
 
         const ownedCourses = (coursesPayload?.items ?? []) as CourseItem[];
@@ -139,8 +177,12 @@ export default function TeacherPage() {
             lowAttendanceCourses: attendancePayload?.lowAttendanceCourses ?? 0,
             lmsMaterials: lmsSummaryPayload?.materials ?? 0,
             lmsAssignments: lmsSummaryPayload?.assignments ?? 0,
+            gradingPending: gradingPayload?.pending ?? 0,
+            gradingReady: gradingPayload?.readyToPublish ?? 0,
             ownedCourses,
             alerts: (attendancePayload?.alerts ?? []) as AttendanceAlert[],
+            gradeReviews: (gradingPayload?.items ?? []) as GradeReviewItem[],
+            advisingNotes: (advisingPayload?.items ?? []) as AdvisingNoteItem[],
             notifications: notificationsPayload?.items ?? []
           });
           setError(null);
@@ -168,6 +210,112 @@ export default function TeacherPage() {
     window.location.href = "/auth";
   }
 
+  async function updateGradeReview(item: GradeReviewItem, status: string) {
+    setBusyId(item.id);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          gradeReviews: current.gradeReviews.map((review) => (review.id === item.id ? { ...review, status } : review)),
+          gradingPending: current.gradeReviews.filter((review) => review.id === item.id ? status === "Pending Review" : review.status === "Pending Review").length,
+          gradingReady: current.gradeReviews.filter((review) => review.id === item.id ? status === "Ready To Publish" : review.status === "Ready To Publish").length
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/grade-reviews/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          reviewerNote: status === "Ready To Publish" ? "Faculty review completed from the teacher workspace." : item.reviewerNote
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update grading review.");
+      }
+
+      const payload = (await response.json()) as GradeReviewItem;
+      setState((current) => {
+        const nextReviews = current.gradeReviews.map((review) => (review.id === item.id ? { ...review, ...payload } : review));
+        return {
+          ...current,
+          gradeReviews: nextReviews,
+          gradingPending: nextReviews.filter((review) => review.status === "Pending Review").length,
+          gradingReady: nextReviews.filter((review) => review.status === "Ready To Publish").length
+        };
+      });
+      setError(null);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update grading review.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function addAdvisingNote(courseCode: string, title: string, note: string) {
+    setBusyId(title);
+
+    try {
+      if (demoMode) {
+        const nextNote: AdvisingNoteItem = {
+          id: `demo-note-${Date.now()}`,
+          studentName: "Aarav Sharma",
+          courseCode,
+          title,
+          note,
+          followUpStatus: "Open",
+          createdAtUtc: new Date().toISOString()
+        };
+        setState((current) => ({
+          ...current,
+          advisingNotes: [nextNote, ...current.advisingNotes].slice(0, 4)
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          studentName: "Aarav Sharma",
+          courseCode,
+          title,
+          note,
+          followUpStatus: "Open"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to add advising note.");
+      }
+
+      const payload = (await response.json()) as AdvisingNoteItem;
+      setState((current) => ({
+        ...current,
+        advisingNotes: [payload, ...current.advisingNotes].slice(0, 4)
+      }));
+      setError(null);
+    } catch (noteError) {
+      setError(noteError instanceof Error ? noteError.message : "Unable to add advising note.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <main className="panel-grid min-h-screen px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -175,9 +323,9 @@ export default function TeacherPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.4em] text-amber-200">Teacher workspace</p>
-              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Owned courses, attendance risk, and teaching workload in one faculty surface.</h1>
+              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Faculty grading, advising, attendance risk, and course delivery in one place.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                The teacher experience now carries course ownership, attendance alerts, and learning workload instead of only top-line summary cards.
+                The teacher experience now includes real grading and advising actions, not just observational summaries.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -205,23 +353,23 @@ export default function TeacherPage() {
             <p className="mt-3 text-sm leading-6 text-amber-100/90">Teacher-specific course ownership from the academic service.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Active attendance sessions</p>
-            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.activeSessions}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">Faculty attendance operations are now visible directly in the teacher workspace.</p>
-          </article>
-          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
             <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Attendance health</p>
             <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : `${state.attendancePercentage}%`}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">Not just tenant-wide data, but professor-scoped session performance.</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Professor-scoped session performance, not only tenant averages.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Low-attendance courses</p>
-            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.lowAttendanceCourses}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">Courses below recovery threshold that need faculty attention.</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Pending grading</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.gradingPending}</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Assessments that still need faculty review before release.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Ready to publish</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.gradingReady}</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Grade reviews that can move cleanly into publishing.</p>
           </article>
         </section>
 
-        <section className="mt-6 grid gap-5 lg:grid-cols-[0.98fr_1.02fr]">
+        <section className="mt-6 grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
           <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -232,7 +380,6 @@ export default function TeacherPage() {
                 {loading ? "Loading" : state.nextCourse}
               </span>
             </div>
-
             <div className="mt-5 space-y-4">
               {state.ownedCourses.map((item) => (
                 <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
@@ -244,13 +391,12 @@ export default function TeacherPage() {
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{item.dayOfWeek} | {item.startTime} | {item.room}</p>
                 </article>
               ))}
-              {!loading && state.ownedCourses.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No owned courses are available yet.</div> : null}
             </div>
           </article>
 
           <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Teaching operations</p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">Learning workload and attendance risk sit together now</h2>
+            <h2 className="mt-3 text-2xl font-semibold text-white">LMS workload and attendance risk live beside grading now</h2>
             <div className="mt-6 grid gap-4 md:grid-cols-3">
               <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
                 <p className="text-sm text-slate-400">Teaching load</p>
@@ -265,7 +411,6 @@ export default function TeacherPage() {
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.lmsAssignments}</p>
               </div>
             </div>
-
             <div className="mt-5 space-y-4">
               {state.alerts.map((item) => (
                 <article key={`${item.courseCode}-${item.totalRecords}`} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
@@ -276,7 +421,87 @@ export default function TeacherPage() {
                   <p className="mt-2 text-sm leading-6 text-slate-400">{item.totalRecords} captured records in the current teaching history.</p>
                 </article>
               ))}
-              {!loading && state.alerts.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No attendance alerts are active right now.</div> : null}
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-5 lg:grid-cols-[1fr_1fr]">
+          <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-rose-200">Grading queue</p>
+                <h2 className="mt-3 text-2xl font-semibold text-white">Move assessments from review to publishing readiness</h2>
+              </div>
+            </div>
+            <div className="mt-5 space-y-4">
+              {state.gradeReviews.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.studentName}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.courseCode} | {item.assessmentName}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.reviewerNote}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateGradeReview(item, "Ready To Publish")}
+                      disabled={busyId === item.id || item.status === "Ready To Publish" || item.status === "Published"}
+                      className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                    >
+                      {busyId === item.id ? "Updating..." : "Mark Ready"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateGradeReview(item, "Published")}
+                      disabled={busyId === item.id || item.status === "Published"}
+                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                    >
+                      {busyId === item.id ? "Updating..." : "Publish"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+
+          <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Advising notes</p>
+                <h2 className="mt-3 text-2xl font-semibold text-white">Capture interventions and support actions directly from faculty view</h2>
+              </div>
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => addAdvisingNote("PHY201", "Attendance intervention", "Student should attend the next two lab sessions and check in after the quiz review.")}
+                disabled={busyId === "Attendance intervention"}
+                className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
+              >
+                {busyId === "Attendance intervention" ? "Saving..." : "Attendance Plan"}
+              </button>
+              <button
+                type="button"
+                onClick={() => addAdvisingNote("CSE401", "Exam readiness counseling", "Recommended focused practice on consistency models before the next internal review.")}
+                disabled={busyId === "Exam readiness counseling"}
+                className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+              >
+                {busyId === "Exam readiness counseling" ? "Saving..." : "Exam Coaching"}
+              </button>
+            </div>
+            <div className="mt-5 space-y-4">
+              {state.advisingNotes.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.followUpStatus}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.studentName} | {item.courseCode}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.note}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.createdAtUtc)}</p>
+                </article>
+              ))}
             </div>
           </article>
         </section>
@@ -292,7 +517,6 @@ export default function TeacherPage() {
                 {loading ? "Loading" : `${state.notifications.length} items`}
               </span>
             </div>
-
             <div className="mt-5 space-y-4">
               {state.notifications.map((item) => (
                 <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
@@ -301,7 +525,6 @@ export default function TeacherPage() {
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.createdAtUtc)}</p>
                 </article>
               ))}
-              {!loading && state.notifications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No notifications are available yet.</div> : null}
             </div>
           </article>
         </section>

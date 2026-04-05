@@ -18,6 +18,9 @@ type AdminState = {
   overdueReminders: number;
   federationReady: number;
   paymentReady: number;
+  studentRequests: number;
+  fulfilledRequests: number;
+  certificateRequests: number;
 };
 
 const demoState: AdminState = {
@@ -31,7 +34,10 @@ const demoState: AdminState = {
   staleAdmissions: 2,
   overdueReminders: 1,
   federationReady: 1,
-  paymentReady: 2
+  paymentReady: 2,
+  studentRequests: 8,
+  fulfilledRequests: 3,
+  certificateRequests: 5
 };
 
 function formatMoney(value: number) {
@@ -65,7 +71,7 @@ export default function AdminPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [usersResponse, financeResponse, paymentReadinessResponse, communicationResponse, identityAuditResponse, federationReadinessResponse, catalogResponse, inquirySummaryResponse] = await Promise.all([
+        const [usersResponse, financeResponse, paymentReadinessResponse, communicationResponse, identityAuditResponse, federationReadinessResponse, catalogResponse, inquirySummaryResponse, requestSummaryResponse] = await Promise.all([
           fetch(`${apiConfig.identity()}/api/v1/users`, { headers }),
           fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers }),
           fetch(`${apiConfig.finance()}/api/v1/payment-providers/readiness`, { headers }),
@@ -73,14 +79,15 @@ export default function AdminPage() {
           fetch(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=20`, { headers }),
           fetch(`${apiConfig.identity()}/api/v1/auth/federation/readiness`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
-          fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers })
+          fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers }),
+          fetch(`${apiConfig.student()}/api/v1/requests/summary`, { headers })
         ]);
 
-        if (!usersResponse.ok || !financeResponse.ok || !paymentReadinessResponse.ok || !communicationResponse.ok || !identityAuditResponse.ok || !federationReadinessResponse.ok || !catalogResponse.ok || !inquirySummaryResponse.ok) {
+        if (!usersResponse.ok || !financeResponse.ok || !paymentReadinessResponse.ok || !communicationResponse.ok || !identityAuditResponse.ok || !federationReadinessResponse.ok || !catalogResponse.ok || !inquirySummaryResponse.ok || !requestSummaryResponse.ok) {
           throw new Error("Unable to load the admin workspace.");
         }
 
-        const [usersPayload, financePayload, paymentReadinessPayload, communicationPayload, identityAuditPayload, federationReadinessPayload, catalogPayload, inquirySummaryPayload] = await Promise.all([
+        const [usersPayload, financePayload, paymentReadinessPayload, communicationPayload, identityAuditPayload, federationReadinessPayload, catalogPayload, inquirySummaryPayload, requestSummaryPayload] = await Promise.all([
           usersResponse.json(),
           financeResponse.json(),
           paymentReadinessResponse.json(),
@@ -88,7 +95,8 @@ export default function AdminPage() {
           identityAuditResponse.json(),
           federationReadinessResponse.json(),
           catalogResponse.json(),
-          inquirySummaryResponse.json()
+          inquirySummaryResponse.json(),
+          requestSummaryResponse.json()
         ]);
 
         if (!cancelled) {
@@ -103,7 +111,10 @@ export default function AdminPage() {
             staleAdmissions: inquirySummaryPayload?.automation?.staleApplications ?? 0,
             overdueReminders: inquirySummaryPayload?.automation?.overdueReminders ?? 0,
             federationReady: federationReadinessPayload?.ready ?? 0,
-            paymentReady: paymentReadinessPayload?.ready ?? 0
+            paymentReady: paymentReadinessPayload?.ready ?? 0,
+            studentRequests: requestSummaryPayload?.total ?? 0,
+            fulfilledRequests: requestSummaryPayload?.fulfilled ?? 0,
+            certificateRequests: requestSummaryPayload?.certificateRequests ?? 0
           });
           setError(null);
           setLoading(false);
@@ -211,6 +222,24 @@ export default function AdminPage() {
             <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Payment rollout readiness</p>
             <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.paymentReady}</p>
             <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Payment providers that are enabled and configured strongly enough for live checkout rollout.</p>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-5 md:grid-cols-3">
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Student service requests</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.studentRequests}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">The certificate and self-service queue is now visible from the web admin workspace too.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Fulfilled requests</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.fulfilledRequests}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Approved student service work that has already moved all the way to issuance.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Certificate demand</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.certificateRequests}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Bonafide and transcript workflows are now measurable alongside admissions and finance.</p>
           </article>
         </section>
       </div>

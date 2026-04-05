@@ -13,8 +13,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\services\building-blocks\University360.BuildingBlocks\University360.BuildingBlocks.csproj" />
+    <ProjectReference Include="..\..\services\academic-service\src\AcademicService.Api\AcademicService.Api.csproj" />
     <ProjectReference Include="..\..\services\communication-service\src\CommunicationService.Api\CommunicationService.Api.csproj" />
     <ProjectReference Include="..\..\services\attendance-service\src\AttendanceService.Api\AttendanceService.Api.csproj" />
+    <ProjectReference Include="..\..\services\exam-service\src\ExamService.Api\ExamService.Api.csproj" />
     <ProjectReference Include="..\..\services\finance-service\src\FinanceService.Api\FinanceService.Api.csproj" />
     <ProjectReference Include="..\..\services\gateway-service\src\GatewayService.Api\GatewayService.Api.csproj" />
     <ProjectReference Include="..\..\services\identity-service\src\IdentityService.Api\IdentityService.Api.csproj" />
