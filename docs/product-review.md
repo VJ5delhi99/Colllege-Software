@@ -40,6 +40,9 @@ The repository already had strong service coverage, but the shipped experience s
 - Added stores and purchase foundation inside the finance boundary so vendor, requisition, purchase-order, and stock-risk signals are now operational instead of remaining only in the requirement review.
 - Expanded the admin web and mobile workspaces so HR and procurement queues sit next to admissions, catalog, identity, and finance oversight rather than remaining hidden backend capability.
 - Added governance and campus-operations foundations in the organization boundary so facility work orders, IRD projects, accreditation initiatives, RTI/legal matters, and incubation cohorts are now visible and actionable in the admin web/mobile product.
+- Added deeper student transaction orchestration so charge-aware payment sessions and step-by-step request journeys are visible in the student experience instead of leaving finance and fulfillment as disconnected summaries.
+- Added long-range planning and budgeting workflows so budget plans and forecast scenarios now live beside the rest of governance and admin operations.
+- Added reliable browser-level regression coverage across auth, dashboard, portal, operations, budgeting, student transactions, RBAC, and chat, and updated Playwright to manage a clean web server instead of depending on a manually started local process.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
@@ -47,6 +50,6 @@ The repository already had strong service coverage, but the shipped experience s
 - Replace one-file minimal-API service implementations with cleaner internal boundaries in the highest-change services.
 - Deepen admissions orchestration from the current templated outreach and balancing layer into longer multi-step journeys and policy-driven escalation.
 - Expand the mobile app beyond the current student request, teacher quick-action, and admin governance coverage so more large transactional workflows reach parity with the web.
-- Add deeper automated coverage for browser-level public discovery, admissions, and cross-service role workflows.
+- Expand from the current mocked browser suite into broader live-API and service-integration regression coverage.
 - Finish production rollout concerns such as external SSO federation, live payment credentials, and managed secret providers.
 - Extend the new governance slice into broader estate/contracts/planning/resource-generation workflows where the repo is still thinner than the source requirement set.

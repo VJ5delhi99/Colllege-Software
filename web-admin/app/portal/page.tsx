@@ -57,17 +57,32 @@ function formatCurrency(value: number) {
   return `INR ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value)}`;
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 1500) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 async function loadOptionalJson(url: string, headers: HeadersInit, enabled: boolean) {
   if (!enabled) {
     return null;
   }
 
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
+  try {
+    const response = await fetchWithTimeout(url, { headers });
+    if (!response.ok) {
+      return null;
+    }
+
+    return response.json();
+  } catch {
     return null;
   }
-
-  return response.json();
 }
 
 function buildPortalState(
@@ -143,9 +158,13 @@ export default function PortalPage() {
       try {
         const activeSession = await getAdminSession();
 
+        if (!cancelled) {
+          setSession(activeSession);
+          setPortalState((current) => current ?? buildPortalState(activeSession, {}));
+        }
+
         if (demoMode) {
           if (!cancelled) {
-            setSession(activeSession);
             setPortalState(buildPortalState(activeSession, {}));
             setError(null);
           }
@@ -203,7 +222,6 @@ export default function PortalPage() {
           (identityAuditPayload?.items?.length ?? 0);
 
         if (!cancelled) {
-          setSession(activeSession);
           setPortalState(
             buildPortalState(activeSession, {
               attendancePercentage: attendancePayload?.percentage,

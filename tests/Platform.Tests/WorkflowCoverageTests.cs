@@ -209,6 +209,27 @@ public sealed class WorkflowCoverageTests
     }
 
     [Fact]
+    public void BudgetPlanningSummary_CountsPlansForecastsAndFundingGap()
+    {
+        var summary = BudgetPlanningSummary.Create(
+            [
+                new BudgetPlan { Status = "Board Review", OperatingBudgetAmount = 185000000, CapitalBudgetAmount = 42000000, CommittedSpendAmount = 61000000 },
+                new BudgetPlan { Status = "Approved", OperatingBudgetAmount = 28000000, CapitalBudgetAmount = 3500000, CommittedSpendAmount = 8500000 }
+            ],
+            [
+                new BudgetForecastScenario { Status = "Open", FundingGapAmount = 28000000 },
+                new BudgetForecastScenario { Status = "Approved", FundingGapAmount = 15000000 }
+            ]);
+
+        summary.PlansUnderReview.Should().Be(1);
+        summary.ForecastScenariosOpen.Should().Be(1);
+        summary.OperatingBudgetAmount.Should().Be(213000000);
+        summary.CapitalBudgetAmount.Should().Be(45500000);
+        summary.CommittedSpendAmount.Should().Be(69500000);
+        summary.FundingGapAmount.Should().Be(43000000);
+    }
+
+    [Fact]
     public void PaymentGatewayCatalog_ExposesOnlyEnabledReadyProviders()
     {
         var configuration = new ConfigurationBuilder()
@@ -280,11 +301,16 @@ public sealed class WorkflowCoverageTests
             [
                 new StudentServiceRequest { RequestType = "Bonafide Letter", Status = "Submitted", RequestedAtUtc = DateTimeOffset.UtcNow },
                 new StudentServiceRequest { RequestType = "Leave Request", Status = "In Review", RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-1) },
-                new StudentServiceRequest { RequestType = "Fee Review", Status = "Completed", RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) }
+                new StudentServiceRequest { RequestType = "Fee Review", Status = "Completed", RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-2), DownloadUrl = "https://download.local/file.pdf" }
+            ],
+            [
+                new StudentRequestWorkflowStep { StepKind = "PaymentClearance", Status = "Pending" }
             ]);
 
         summary.EnrollmentCount.Should().Be(2);
         summary.OpenRequests.Should().Be(2);
+        summary.ReadyForDownload.Should().Be(1);
+        summary.RequestsAwaitingClearance.Should().Be(1);
         summary.RecentEnrollments.Should().HaveCount(2);
         summary.RecentRequests.Should().HaveCount(3);
     }
@@ -295,8 +321,11 @@ public sealed class WorkflowCoverageTests
         var summary = StudentRequestSummary.Create(
             [
                 new StudentServiceRequest { RequestType = "Bonafide Letter", Status = "Submitted" },
-                new StudentServiceRequest { RequestType = "Transcript Certificate", Status = "Fulfilled", FulfillmentReference = "CERT-2026-1004" },
+                new StudentServiceRequest { RequestType = "Transcript Certificate", Status = "Fulfilled", FulfillmentReference = "CERT-2026-1004", DownloadUrl = "https://download.local/file.pdf" },
                 new StudentServiceRequest { RequestType = "Leave Request", Status = "Approved" }
+            ],
+            [
+                new StudentRequestWorkflowStep { StepKind = "PaymentClearance", Status = "Pending" }
             ]);
 
         summary.Total.Should().Be(3);
@@ -304,6 +333,8 @@ public sealed class WorkflowCoverageTests
         summary.Approved.Should().Be(1);
         summary.Fulfilled.Should().Be(1);
         summary.CertificateRequests.Should().Be(2);
+        summary.ReadyForDownload.Should().Be(1);
+        summary.AwaitingPaymentClearance.Should().Be(1);
     }
 
     [Fact]
@@ -411,13 +442,20 @@ public sealed class WorkflowCoverageTests
             [
                 new PaymentSession { Status = "Pending", InvoiceNumber = "INV-2026-003", CreatedAtUtc = DateTimeOffset.UtcNow },
                 new PaymentSession { Status = "Paid", InvoiceNumber = "INV-2026-000", CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) }
+            ],
+            [
+                new StudentCharge { Title = "Semester tuition installment", BalanceAmount = 8000, Status = "Due", DueAtUtc = DateTimeOffset.UtcNow.AddDays(5) },
+                new StudentCharge { Title = "Exam registration fee", BalanceAmount = 2500, Status = "Due", DueAtUtc = DateTimeOffset.UtcNow.AddDays(-1) }
             ]);
 
         summary.TotalPaid.Should().Be(57000);
         summary.TotalTransactions.Should().Be(2);
         summary.PendingSessions.Should().Be(1);
+        summary.OutstandingAmount.Should().Be(10500);
+        summary.OverdueCharges.Should().Be(1);
         summary.LatestPayment?.InvoiceNumber.Should().Be("INV-2026-002");
         summary.LatestSession?.InvoiceNumber.Should().Be("INV-2026-003");
+        summary.NextCharge?.Title.Should().Be("Exam registration fee");
     }
 
     [Fact]

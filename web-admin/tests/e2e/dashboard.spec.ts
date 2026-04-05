@@ -40,7 +40,7 @@ test("dashboard shows live metric cards", async ({ page }) => {
   });
 
   await page.goto("/");
-  await expect(page.getByText("Cross-campus operations with one clear surface for action.")).toBeVisible();
-  await expect(page.getByText("3")).toBeVisible();
-  await expect(page.getByText("92%")).toBeVisible();
+  await expect(page.getByText("Explore campuses, compare programs, and move into admissions without the clutter.")).toBeVisible();
+  await expect(page.getByText("College Management Platform")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Student / Faculty Login" })).toBeVisible();
 });

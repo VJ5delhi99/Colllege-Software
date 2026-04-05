@@ -225,8 +225,34 @@ app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, H
         .Where(x => x.TenantId == tenantId && x.StudentId == studentId)
         .OrderByDescending(x => x.CreatedAtUtc)
         .ToListAsync();
+    var charges = await dbContext.StudentCharges
+        .Where(x => x.TenantId == tenantId && x.StudentId == studentId)
+        .OrderBy(x => x.DueAtUtc)
+        .ToListAsync();
 
-    return Results.Ok(StudentFinanceSummary.Create(payments, sessions));
+    return Results.Ok(StudentFinanceSummary.Create(payments, sessions, charges));
+}).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
+
+app.MapGet("/api/v1/students/{studentId:guid}/charges", async (Guid studentId, HttpContext httpContext, FinanceDbContext dbContext) =>
+{
+    if (!CanAccessStudentFinance(httpContext, studentId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.StudentCharges
+        .Where(x => x.TenantId == tenantId && x.StudentId == studentId)
+        .OrderBy(x => x.DueAtUtc)
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        items,
+        total = items.Count,
+        outstandingAmount = items.Where(item => !string.Equals(item.Status, "Paid", StringComparison.OrdinalIgnoreCase)).Sum(item => item.BalanceAmount),
+        overdue = items.Count(item => !string.Equals(item.Status, "Paid", StringComparison.OrdinalIgnoreCase) && item.DueAtUtc < DateTimeOffset.UtcNow)
+    });
 }).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
 
 app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions", async (Guid studentId, HttpContext httpContext, [FromBody] StudentPaymentSessionRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
@@ -287,6 +313,85 @@ app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions", async (Guid st
     });
 }).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
 
+app.MapPost("/api/v1/students/{studentId:guid}/charges/{chargeId:guid}/payment-sessions", async (Guid studentId, Guid chargeId, HttpContext httpContext, [FromBody] StudentChargePaymentSessionRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
+{
+    if (!CanAccessStudentFinance(httpContext, studentId))
+    {
+        return Results.Forbid();
+    }
+
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
+    var charge = await dbContext.StudentCharges.FirstOrDefaultAsync(x => x.Id == chargeId && x.TenantId == tenantId && x.StudentId == studentId);
+    if (charge is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (string.Equals(charge.Status, "Paid", StringComparison.OrdinalIgnoreCase) || charge.BalanceAmount <= 0)
+    {
+        return Results.BadRequest(new { message = "This charge is already settled." });
+    }
+
+    var providerConfig = gateways.GetProvider(request.Provider);
+    if (providerConfig is null)
+    {
+        return Results.BadRequest(new { message = "Unsupported payment provider" });
+    }
+
+    if (!providerConfig.Enabled || !providerConfig.IsReadyForCheckout)
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} is not available for student checkout right now." });
+    }
+
+    if (!providerConfig.SupportedCurrencies.Contains(charge.Currency, StringComparer.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} does not support {charge.Currency} in the current rollout." });
+    }
+
+    var session = new PaymentSession
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        StudentId = studentId,
+        Provider = request.Provider,
+        Amount = charge.BalanceAmount,
+        Currency = charge.Currency,
+        InvoiceNumber = charge.InvoiceNumber,
+        ProviderReference = $"{request.Provider.ToLowerInvariant()}_{Guid.NewGuid():N}",
+        Status = "Pending",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        CheckoutUrl = $"{providerConfig.CheckoutBaseUrl.TrimEnd('/')}/{request.Provider.ToLowerInvariant()}/checkout/{Guid.NewGuid():N}",
+        ProviderPublicKey = providerConfig.PublicKey
+    };
+
+    dbContext.PaymentSessions.Add(session);
+    dbContext.StudentChargeSessionLinks.Add(new StudentChargeSessionLink
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        StudentId = studentId,
+        ChargeId = charge.Id,
+        SessionId = session.Id,
+        LinkedAtUtc = DateTimeOffset.UtcNow
+    });
+    dbContext.AuditLogs.Add(FinanceAuditLog.Create(tenantId, "student.charge.payment-session.created", session.Id.ToString(), httpContext.User.Identity?.Name ?? "finance-service", $"Payment session created for charge {charge.Title} via {session.Provider}."));
+    await dbContext.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        sessionId = session.Id,
+        provider = session.Provider,
+        invoiceNumber = session.InvoiceNumber,
+        providerReference = session.ProviderReference,
+        checkoutUrl = session.CheckoutUrl,
+        publishableKey = session.ProviderPublicKey,
+        amount = session.Amount,
+        currency = session.Currency,
+        charge
+    });
+}).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
+
 app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions/{sessionId:guid}/complete", async (Guid studentId, Guid sessionId, HttpContext httpContext, FinanceDbContext dbContext) =>
 {
     if (!CanAccessStudentFinance(httpContext, studentId))
@@ -335,10 +440,26 @@ app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions/{sessionId:guid}
         await dbContext.SaveChangesAsync();
     }
 
+    var chargeLink = await dbContext.StudentChargeSessionLinks.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.StudentId == studentId && x.SessionId == sessionId);
+    StudentCharge? charge = null;
+    if (chargeLink is not null)
+    {
+        charge = await dbContext.StudentCharges.FirstOrDefaultAsync(x => x.Id == chargeLink.ChargeId && x.TenantId == tenantId && x.StudentId == studentId);
+        if (charge is not null)
+        {
+            charge.Status = "Paid";
+            charge.BalanceAmount = 0;
+            charge.SettledAtUtc = DateTimeOffset.UtcNow;
+            charge.Note = $"Settled via {session.Provider} session {session.InvoiceNumber}.";
+            await dbContext.SaveChangesAsync();
+        }
+    }
+
     return Results.Ok(new
     {
         session,
-        payment = existingPayment
+        payment = existingPayment,
+        charge
     });
 }).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
 
@@ -492,6 +613,59 @@ static async Task SeedFinanceDataAsync(WebApplication app)
         });
     }
 
+    if (!await dbContext.StudentCharges.AnyAsync())
+    {
+        dbContext.StudentCharges.AddRange(
+        [
+            new StudentCharge
+            {
+                Id = Guid.Parse("56000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                StudentId = KnownUsers.StudentId,
+                ChargeType = "Tuition",
+                Title = "Semester tuition installment",
+                InvoiceNumber = "INV-2026-003",
+                Amount = 8000,
+                BalanceAmount = 8000,
+                Currency = "INR",
+                Status = "Due",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(5),
+                Note = "Pending student checkout for the current installment."
+            },
+            new StudentCharge
+            {
+                Id = Guid.Parse("56000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                StudentId = KnownUsers.StudentId,
+                ChargeType = "Examination",
+                Title = "Examination registration fee",
+                InvoiceNumber = "INV-2026-004",
+                Amount = 2500,
+                BalanceAmount = 2500,
+                Currency = "INR",
+                Status = "Due",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(12),
+                Note = "Required before exam hall-ticket release."
+            },
+            new StudentCharge
+            {
+                Id = Guid.Parse("56000000-0000-0000-0000-000000000003"),
+                TenantId = "default",
+                StudentId = KnownUsers.StudentId,
+                ChargeType = "Library",
+                Title = "Library caution adjustment",
+                InvoiceNumber = "INV-2026-001",
+                Amount = 1200,
+                BalanceAmount = 0,
+                Currency = "INR",
+                Status = "Paid",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(-20),
+                SettledAtUtc = DateTimeOffset.UtcNow.AddDays(-15),
+                Note = "Settled during the last fee cycle."
+            }
+        ]);
+    }
+
     if (!await dbContext.Vendors.AnyAsync())
     {
         dbContext.Vendors.AddRange(
@@ -641,6 +815,7 @@ static bool CanAccessStudentFinance(HttpContext httpContext, Guid requestedUserI
 public sealed record RecordPaymentRequest(string TenantId, Guid StudentId, decimal Amount, string Currency, string Provider, string Status, string InvoiceNumber);
 public sealed record PaymentSessionRequest(string TenantId, Guid StudentId, decimal Amount, string Currency, string Provider, string InvoiceNumber);
 public sealed record StudentPaymentSessionRequest(string TenantId, decimal Amount, string Currency, string Provider, string InvoiceNumber);
+public sealed record StudentChargePaymentSessionRequest(string TenantId, string Provider);
 public sealed record PaymentWebhookRequest(string ProviderReference, string Status, string Signature, string PayloadJson);
 public sealed record RefundRequest(string TenantId, Guid PaymentId, decimal Amount, string Reason);
 public sealed record UpdateProcurementStatusRequest(string Status, string? ActorName, string? Note);
@@ -648,20 +823,30 @@ public sealed record StudentFinanceSummary(
     decimal TotalPaid,
     int TotalTransactions,
     int PendingSessions,
+    decimal OutstandingAmount,
+    int OverdueCharges,
     Payment? LatestPayment,
-    PaymentSession? LatestSession)
+    PaymentSession? LatestSession,
+    StudentCharge? NextCharge)
 {
-    public static StudentFinanceSummary Create(IReadOnlyCollection<Payment> payments, IReadOnlyCollection<PaymentSession> sessions)
+    public static StudentFinanceSummary Create(IReadOnlyCollection<Payment> payments, IReadOnlyCollection<PaymentSession> sessions, IReadOnlyCollection<StudentCharge> charges)
     {
         var orderedPayments = payments.OrderByDescending(x => x.PaidAtUtc).ToArray();
         var orderedSessions = sessions.OrderByDescending(x => x.CreatedAtUtc).ToArray();
         var paidPayments = orderedPayments.Where(x => string.Equals(x.Status, "Paid", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var openCharges = charges
+            .Where(x => !string.Equals(x.Status, "Paid", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(x => x.DueAtUtc)
+            .ToArray();
         return new StudentFinanceSummary(
             paidPayments.Sum(x => x.Amount),
             paidPayments.Length,
             orderedSessions.Count(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+            openCharges.Sum(x => x.BalanceAmount),
+            openCharges.Count(x => x.DueAtUtc < DateTimeOffset.UtcNow),
             orderedPayments.FirstOrDefault(),
-            orderedSessions.FirstOrDefault());
+            orderedSessions.FirstOrDefault(),
+            openCharges.FirstOrDefault());
     }
 }
 
@@ -740,6 +925,33 @@ public sealed class PaymentRefund
     public decimal Amount { get; set; }
     public string Reason { get; set; } = string.Empty;
     public DateTimeOffset RequestedAtUtc { get; set; }
+}
+
+public sealed class StudentCharge
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid StudentId { get; set; }
+    public string ChargeType { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public decimal BalanceAmount { get; set; }
+    public string Currency { get; set; } = "INR";
+    public string Status { get; set; } = "Due";
+    public DateTimeOffset DueAtUtc { get; set; }
+    public DateTimeOffset? SettledAtUtc { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class StudentChargeSessionLink
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid StudentId { get; set; }
+    public Guid ChargeId { get; set; }
+    public Guid SessionId { get; set; }
+    public DateTimeOffset LinkedAtUtc { get; set; }
 }
 
 public sealed class ReconciliationRun
@@ -842,6 +1054,8 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
     public DbSet<PaymentRefund> Refunds => Set<PaymentRefund>();
     public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
     public DbSet<FinanceAuditLog> AuditLogs => Set<FinanceAuditLog>();
+    public DbSet<StudentCharge> StudentCharges => Set<StudentCharge>();
+    public DbSet<StudentChargeSessionLink> StudentChargeSessionLinks => Set<StudentChargeSessionLink>();
     public DbSet<VendorProfile> Vendors => Set<VendorProfile>();
     public DbSet<PurchaseRequisition> PurchaseRequisitions => Set<PurchaseRequisition>();
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();

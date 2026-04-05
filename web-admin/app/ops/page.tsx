@@ -179,12 +179,18 @@ async function loadOptionalJson(url: string, headers: HeadersInit, enabled: bool
     return null;
   }
 
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 1500);
+    const response = await fetch(url, { headers, signal: controller.signal }).finally(() => window.clearTimeout(timeoutId));
+    if (!response.ok) {
+      return null;
+    }
+
+    return response.json();
+  } catch {
     return null;
   }
-
-  return response.json();
 }
 
 const demoNotifications: NotificationItem[] = [

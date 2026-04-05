@@ -91,6 +91,30 @@ type ResourceCampaignItem = {
   reviewDueAtUtc: string;
 };
 
+type BudgetPlanItem = {
+  id: string;
+  planName: string;
+  fiscalYear: string;
+  status: string;
+  ownerName: string;
+  operatingBudgetAmount: number;
+  capitalBudgetAmount: number;
+  committedSpendAmount: number;
+  reviewDueAtUtc: string;
+};
+
+type BudgetForecastItem = {
+  id: string;
+  scenarioName: string;
+  planningHorizonYears: number;
+  status: string;
+  ownerName: string;
+  fundingGapAmount: number;
+  projectedRevenueAmount: number;
+  projectedExpenseAmount: number;
+  nextReviewAtUtc: string;
+};
+
 type AdminState = {
   campuses: number;
   programs: number;
@@ -114,6 +138,9 @@ type AdminState = {
   contractRenewalsDue: number;
   planningMilestonesDue: number;
   activeResourceCampaigns: number;
+  budgetPlansUnderReview: number;
+  forecastScenariosOpen: number;
+  fundingGapAmount: number;
   followUps: FollowUpItem[];
   studentRequests: StudentRequestItem[];
   facilityWorkOrders: FacilityWorkOrderItem[];
@@ -123,6 +150,8 @@ type AdminState = {
   estateContracts: EstateContractItem[];
   planningInitiatives: PlanningInitiativeItem[];
   resourceCampaigns: ResourceCampaignItem[];
+  budgetPlans: BudgetPlanItem[];
+  budgetForecasts: BudgetForecastItem[];
   error: string | null;
 };
 
@@ -149,6 +178,9 @@ const demoState: AdminState = {
   contractRenewalsDue: 1,
   planningMilestonesDue: 1,
   activeResourceCampaigns: 2,
+  budgetPlansUnderReview: 2,
+  forecastScenariosOpen: 2,
+  fundingGapAmount: 43000000,
   followUps: [
     {
       id: "communication-1",
@@ -258,6 +290,32 @@ const demoState: AdminState = {
       reviewDueAtUtc: new Date(Date.now() + 9 * 86400000).toISOString()
     }
   ],
+  budgetPlans: [
+    {
+      id: "budget-1",
+      planName: "FY 2026 operating and capital plan",
+      fiscalYear: "2026-27",
+      status: "Board Review",
+      ownerName: "Finance Planning Office",
+      operatingBudgetAmount: 185000000,
+      capitalBudgetAmount: 42000000,
+      committedSpendAmount: 61000000,
+      reviewDueAtUtc: new Date(Date.now() + 11 * 86400000).toISOString()
+    }
+  ],
+  budgetForecasts: [
+    {
+      id: "forecast-1",
+      scenarioName: "Three-year enrollment-led growth forecast",
+      planningHorizonYears: 3,
+      status: "Open",
+      ownerName: "Strategic Planning Cell",
+      fundingGapAmount: 28000000,
+      projectedRevenueAmount: 780000000,
+      projectedExpenseAmount: 712000000,
+      nextReviewAtUtc: new Date(Date.now() + 9 * 86400000).toISOString()
+    }
+  ],
   error: null
 };
 
@@ -282,7 +340,7 @@ export default function AdminMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse, hrSummaryResponse, procurementSummaryResponse, governanceResponse, facilityResponse, researchResponse, legalResponse, incubationResponse, contractsResponse, planningResponse, campaignsResponse] = await Promise.all([
+        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse, hrSummaryResponse, procurementSummaryResponse, governanceResponse, facilityResponse, researchResponse, legalResponse, incubationResponse, contractsResponse, planningResponse, campaignsResponse, budgetSummaryResponse, budgetPlansResponse, budgetForecastsResponse] = await Promise.all([
           fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=3`, { headers }),
@@ -298,14 +356,17 @@ export default function AdminMobilePage() {
           fetch(`${apiConfig.organization()}/api/v1/incubation/startups?pageSize=2`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/estate/contracts?pageSize=2`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/planning/initiatives?pageSize=2`, { headers }),
-          fetch(`${apiConfig.organization()}/api/v1/resource-generation/campaigns?pageSize=2`, { headers })
+          fetch(`${apiConfig.organization()}/api/v1/resource-generation/campaigns?pageSize=2`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/budgeting/summary`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/budgeting/plans?pageSize=2`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/budgeting/forecasts?pageSize=2`, { headers })
         ]);
 
-        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok || !hrSummaryResponse.ok || !procurementSummaryResponse.ok || !governanceResponse.ok || !facilityResponse.ok || !researchResponse.ok || !legalResponse.ok || !incubationResponse.ok || !contractsResponse.ok || !planningResponse.ok || !campaignsResponse.ok) {
+        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok || !hrSummaryResponse.ok || !procurementSummaryResponse.ok || !governanceResponse.ok || !facilityResponse.ok || !researchResponse.ok || !legalResponse.ok || !incubationResponse.ok || !contractsResponse.ok || !planningResponse.ok || !campaignsResponse.ok || !budgetSummaryResponse.ok || !budgetPlansResponse.ok || !budgetForecastsResponse.ok) {
           throw new Error("Admin mobile workspace is unavailable.");
         }
 
-        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance, hrSummary, procurementSummary, governanceSummary, facilityPayload, researchPayload, legalPayload, incubationPayload, contractsPayload, planningPayload, campaignsPayload] = await Promise.all([
+        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance, hrSummary, procurementSummary, governanceSummary, facilityPayload, researchPayload, legalPayload, incubationPayload, contractsPayload, planningPayload, campaignsPayload, budgetSummary, budgetPlansPayload, budgetForecastsPayload] = await Promise.all([
           organizationResponse.json(),
           admissionsResponse.json(),
           communicationsResponse.json(),
@@ -321,7 +382,10 @@ export default function AdminMobilePage() {
           incubationResponse.json(),
           contractsResponse.json(),
           planningResponse.json(),
-          campaignsResponse.json()
+          campaignsResponse.json(),
+          budgetSummaryResponse.json(),
+          budgetPlansResponse.json(),
+          budgetForecastsResponse.json()
         ]);
         const followUps: FollowUpItem[] = [
           ...((communicationsPayload?.items ?? []) as Array<{ id: string; applicantName: string; subject: string; channel: string; status: string }>).map((item) => ({
@@ -360,6 +424,9 @@ export default function AdminMobilePage() {
           contractRenewalsDue: governanceSummary?.contractRenewalsDue ?? 0,
           planningMilestonesDue: governanceSummary?.planningMilestonesDue ?? 0,
           activeResourceCampaigns: governanceSummary?.activeResourceCampaigns ?? 0,
+          budgetPlansUnderReview: budgetSummary?.plansUnderReview ?? 0,
+          forecastScenariosOpen: budgetSummary?.forecastScenariosOpen ?? 0,
+          fundingGapAmount: budgetSummary?.fundingGapAmount ?? 0,
           followUps,
           studentRequests: requestsPayload?.items ?? [],
           facilityWorkOrders: facilityPayload?.items ?? [],
@@ -369,6 +436,8 @@ export default function AdminMobilePage() {
           estateContracts: contractsPayload?.items ?? [],
           planningInitiatives: planningPayload?.items ?? [],
           resourceCampaigns: campaignsPayload?.items ?? [],
+          budgetPlans: budgetPlansPayload?.items ?? [],
+          budgetForecasts: budgetForecastsPayload?.items ?? [],
           error: null
         });
       })
@@ -394,7 +463,8 @@ export default function AdminMobilePage() {
     { label: "Legal", value: state.openLegalCases.toString() },
     { label: "Incubation", value: state.activeIncubations.toString() },
     { label: "Contracts", value: state.contractRenewalsDue.toString() },
-    { label: "Planning", value: state.planningMilestonesDue.toString() }
+    { label: "Planning", value: state.planningMilestonesDue.toString() },
+    { label: "Budgets", value: state.budgetPlansUnderReview.toString() }
   ];
 
   async function updateStudentRequestStatus(item: StudentRequestItem, status: string) {
@@ -738,12 +808,12 @@ export default function AdminMobilePage() {
           transition={{ delay: 500, type: "timing", duration: 450 }}
           style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(59, 130, 246, 0.10)", borderWidth: 1, borderColor: "rgba(147, 197, 253, 0.18)" }}
         >
-          <Text style={{ color: "#bfdbfe", fontSize: 13 }}>Estate, Planning, and Growth</Text>
+          <Text style={{ color: "#bfdbfe", fontSize: 13 }}>Estate, Planning, Growth, and Budgets</Text>
           <Text style={{ color: "#fff7ed", fontSize: 20, fontWeight: "700", marginTop: 8 }}>
             {state.contractRenewalsDue} contract renewals | {state.planningMilestonesDue} milestones
           </Text>
           <Text style={{ color: "#dbeafe", marginTop: 10 }}>
-            {state.activeResourceCampaigns} active growth campaigns are now visible in the mobile admin view.
+            {state.activeResourceCampaigns} active growth campaigns, {state.budgetPlansUnderReview} budget plans, and a {formatMoney(state.fundingGapAmount)} funding gap are visible in the mobile admin view.
           </Text>
           <View style={{ marginTop: 14, gap: 12 }}>
             {state.estateContracts.map((item) => (
@@ -791,6 +861,22 @@ export default function AdminMobilePage() {
                     <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>Close</Text>
                   </Pressable>
                 </View>
+              </View>
+            ))}
+
+            {state.budgetPlans.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.planName}</Text>
+                <Text style={{ color: "#bfdbfe", marginTop: 6 }}>{item.fiscalYear} | {item.status}</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>{formatMoney(item.operatingBudgetAmount)} operating | {formatMoney(item.capitalBudgetAmount)} capital</Text>
+              </View>
+            ))}
+
+            {state.budgetForecasts.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.scenarioName}</Text>
+                <Text style={{ color: "#bfdbfe", marginTop: 6 }}>{item.planningHorizonYears}-year horizon | {item.status}</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>Gap {formatMoney(item.fundingGapAmount)} | review {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(item.nextReviewAtUtc))}</Text>
               </View>
             ))}
           </View>

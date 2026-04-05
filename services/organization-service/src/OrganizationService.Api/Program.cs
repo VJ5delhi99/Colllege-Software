@@ -483,6 +483,68 @@ app.MapPost("/api/v1/resource-generation/campaigns/{id:guid}/status", async (Gui
     return Results.Ok(item);
 }).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
 
+app.MapGet("/api/v1/budgeting/summary", async (HttpContext httpContext, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var budgetPlans = await dbContext.BudgetPlans.Where(x => x.TenantId == tenantId).ToListAsync();
+    var forecastScenarios = await dbContext.BudgetForecastScenarios.Where(x => x.TenantId == tenantId).ToListAsync();
+    return Results.Ok(BudgetPlanningSummary.Create(budgetPlans, forecastScenarios));
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/budgeting/plans", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.BudgetPlans.Where(x => x.TenantId == tenantId).OrderBy(x => x.ReviewDueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/budgeting/plans/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateBudgetPlanStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.BudgetPlans.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/budgeting/forecasts", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.BudgetForecastScenarios.Where(x => x.TenantId == tenantId).OrderBy(x => x.NextReviewAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/budgeting/forecasts/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateBudgetForecastStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.BudgetForecastScenarios.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
 app.Run();
 
 static async Task SeedOrganizationDataAsync(WebApplication app)
@@ -1217,6 +1279,82 @@ static async Task SeedOrganizationDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.BudgetPlans.AnyAsync())
+    {
+        dbContext.BudgetPlans.AddRange(
+        [
+            new BudgetPlan
+            {
+                Id = Guid.Parse("55000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                PlanName = "FY 2026 operating and capital plan",
+                FiscalYear = "2026-27",
+                Status = "Board Review",
+                OwnerName = "Finance Planning Office",
+                OperatingBudgetAmount = 185000000m,
+                CapitalBudgetAmount = 42000000m,
+                RevenueTargetAmount = 248000000m,
+                CommittedSpendAmount = 61000000m,
+                ContingencyReserveAmount = 12000000m,
+                ReviewDueAtUtc = DateTimeOffset.UtcNow.AddDays(11),
+                Note = "Consolidated plan for academic, estate, and student support growth."
+            },
+            new BudgetPlan
+            {
+                Id = Guid.Parse("55000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                PlanName = "Student support services expansion plan",
+                FiscalYear = "2026-27",
+                Status = "Draft",
+                OwnerName = "Student Affairs and Finance",
+                OperatingBudgetAmount = 28000000m,
+                CapitalBudgetAmount = 3500000m,
+                RevenueTargetAmount = 31500000m,
+                CommittedSpendAmount = 8500000m,
+                ContingencyReserveAmount = 2500000m,
+                ReviewDueAtUtc = DateTimeOffset.UtcNow.AddDays(18),
+                Note = "Covers counseling, digital student services, and expanded helpdesk support."
+            }
+        ]);
+    }
+
+    if (!await dbContext.BudgetForecastScenarios.AnyAsync())
+    {
+        dbContext.BudgetForecastScenarios.AddRange(
+        [
+            new BudgetForecastScenario
+            {
+                Id = Guid.Parse("55000000-0000-0000-0000-000000000101"),
+                TenantId = "default",
+                ScenarioName = "Three-year enrollment-led growth forecast",
+                PlanningHorizonYears = 3,
+                Status = "Open",
+                OwnerName = "Strategic Planning Cell",
+                ProjectedRevenueAmount = 780000000m,
+                ProjectedExpenseAmount = 712000000m,
+                CapitalReserveAmount = 96000000m,
+                FundingGapAmount = 28000000m,
+                NextReviewAtUtc = DateTimeOffset.UtcNow.AddDays(9),
+                Note = "Assumes moderate intake growth with phased infrastructure investment."
+            },
+            new BudgetForecastScenario
+            {
+                Id = Guid.Parse("55000000-0000-0000-0000-000000000102"),
+                TenantId = "default",
+                ScenarioName = "Research and innovation acceleration forecast",
+                PlanningHorizonYears = 5,
+                Status = "Scenario Review",
+                OwnerName = "Research and Development Office",
+                ProjectedRevenueAmount = 430000000m,
+                ProjectedExpenseAmount = 401000000m,
+                CapitalReserveAmount = 54000000m,
+                FundingGapAmount = 15000000m,
+                NextReviewAtUtc = DateTimeOffset.UtcNow.AddDays(16),
+                Note = "Maps grant growth, incubation investment, and lab refresh requirements."
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -1288,6 +1426,24 @@ public static class GovernanceOperationsSummary
     }
 }
 
+public static class BudgetPlanningSummary
+{
+    public static BudgetPlanningSnapshot Create(
+        IReadOnlyCollection<BudgetPlan> budgetPlans,
+        IReadOnlyCollection<BudgetForecastScenario> forecastScenarios)
+    {
+        var plansUnderReview = budgetPlans.Count(x => !string.Equals(x.Status, "Approved", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase));
+        var forecastScenariosOpen = forecastScenarios.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Approved", StringComparison.OrdinalIgnoreCase));
+        return new BudgetPlanningSnapshot(
+            plansUnderReview,
+            forecastScenariosOpen,
+            budgetPlans.Sum(x => x.OperatingBudgetAmount),
+            budgetPlans.Sum(x => x.CapitalBudgetAmount),
+            budgetPlans.Sum(x => x.CommittedSpendAmount),
+            forecastScenarios.Sum(x => x.FundingGapAmount));
+    }
+}
+
 public sealed record OrganizationCatalogSummary(
     int Colleges,
     int Campuses,
@@ -1317,6 +1473,14 @@ public sealed record GovernanceOperationsSnapshot(
     int PlanningMilestonesDue,
     int ActiveResourceCampaigns);
 
+public sealed record BudgetPlanningSnapshot(
+    int PlansUnderReview,
+    int ForecastScenariosOpen,
+    decimal OperatingBudgetAmount,
+    decimal CapitalBudgetAmount,
+    decimal CommittedSpendAmount,
+    decimal FundingGapAmount);
+
 public sealed record UpdateLeaveRequestStatusRequest(string Status, string? ApproverName, string? Comment);
 
 public sealed record UpdateRecruitmentOpeningStatusRequest(string Status, string? OwnerName, string? Note);
@@ -1336,6 +1500,10 @@ public sealed record UpdateEstateContractStatusRequest(string Status, string? Ow
 public sealed record UpdatePlanningInitiativeStatusRequest(string Status, string? OwnerName, string? Note);
 
 public sealed record UpdateResourceCampaignStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdateBudgetPlanStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdateBudgetForecastStatusRequest(string Status, string? OwnerName, string? Note);
 
 public sealed class CollegeProfile
 {
@@ -1564,6 +1732,39 @@ public sealed class ResourceGenerationCampaign
     public string Note { get; set; } = string.Empty;
 }
 
+public sealed class BudgetPlan
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string PlanName { get; set; } = string.Empty;
+    public string FiscalYear { get; set; } = string.Empty;
+    public string Status { get; set; } = "Draft";
+    public string OwnerName { get; set; } = string.Empty;
+    public decimal OperatingBudgetAmount { get; set; }
+    public decimal CapitalBudgetAmount { get; set; }
+    public decimal RevenueTargetAmount { get; set; }
+    public decimal CommittedSpendAmount { get; set; }
+    public decimal ContingencyReserveAmount { get; set; }
+    public DateTimeOffset ReviewDueAtUtc { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class BudgetForecastScenario
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string ScenarioName { get; set; } = string.Empty;
+    public int PlanningHorizonYears { get; set; }
+    public string Status { get; set; } = "Open";
+    public string OwnerName { get; set; } = string.Empty;
+    public decimal ProjectedRevenueAmount { get; set; }
+    public decimal ProjectedExpenseAmount { get; set; }
+    public decimal CapitalReserveAmount { get; set; }
+    public decimal FundingGapAmount { get; set; }
+    public DateTimeOffset NextReviewAtUtc { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
 public sealed class AcademicProgramProfile
 {
     public Guid Id { get; set; }
@@ -1600,4 +1801,6 @@ public sealed class OrganizationDbContext(DbContextOptions<OrganizationDbContext
     public DbSet<EstateContract> EstateContracts => Set<EstateContract>();
     public DbSet<CampusPlanningInitiative> PlanningInitiatives => Set<CampusPlanningInitiative>();
     public DbSet<ResourceGenerationCampaign> ResourceCampaigns => Set<ResourceGenerationCampaign>();
+    public DbSet<BudgetPlan> BudgetPlans => Set<BudgetPlan>();
+    public DbSet<BudgetForecastScenario> BudgetForecastScenarios => Set<BudgetForecastScenario>();
 }

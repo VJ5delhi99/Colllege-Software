@@ -18,6 +18,8 @@ type IncubationStartupItem = { id: string; cohortName: string; startupName: stri
 type EstateContractItem = { id: string; contractType: string; title: string; status: string; vendorName: string; ownerName: string; renewalDueAtUtc: string; valueAmount: number };
 type PlanningInitiativeItem = { id: string; initiativeName: string; category: string; status: string; ownerName: string; milestoneName: string; dueAtUtc: string; budgetAmount: number };
 type ResourceCampaignItem = { id: string; campaignName: string; sourceType: string; status: string; ownerName: string; targetAmount: number; securedAmount: number; reviewDueAtUtc: string };
+type BudgetPlanItem = { id: string; planName: string; fiscalYear: string; status: string; ownerName: string; operatingBudgetAmount: number; capitalBudgetAmount: number; revenueTargetAmount: number; committedSpendAmount: number; contingencyReserveAmount: number; reviewDueAtUtc: string };
+type BudgetForecastItem = { id: string; scenarioName: string; planningHorizonYears: number; status: string; ownerName: string; projectedRevenueAmount: number; projectedExpenseAmount: number; capitalReserveAmount: number; fundingGapAmount: number; nextReviewAtUtc: string };
 type ExamBoardItem = { id: string; courseCode: string; assessmentName: string; boardName: string; panelLead: string; status: string; boardNote: string; dueAtUtc: string; updatedAtUtc: string };
 
 type AdminState = {
@@ -54,6 +56,11 @@ type AdminState = {
   contractRenewalsDue: number;
   planningMilestonesDue: number;
   activeResourceCampaigns: number;
+  budgetPlansUnderReview: number;
+  forecastScenariosOpen: number;
+  operatingBudgetAmount: number;
+  capitalBudgetAmount: number;
+  fundingGapAmount: number;
   examBoardReview: number;
   examBoardReady: number;
   examBoardDueSoon: number;
@@ -69,6 +76,8 @@ type AdminState = {
   estateContracts: EstateContractItem[];
   planningInitiatives: PlanningInitiativeItem[];
   resourceCampaigns: ResourceCampaignItem[];
+  budgetPlans: BudgetPlanItem[];
+  budgetForecasts: BudgetForecastItem[];
   examBoardItems: ExamBoardItem[];
 };
 
@@ -107,6 +116,11 @@ const demoState: AdminState = {
   contractRenewalsDue: 1,
   planningMilestonesDue: 1,
   activeResourceCampaigns: 2,
+  budgetPlansUnderReview: 2,
+  forecastScenariosOpen: 2,
+  operatingBudgetAmount: 213000000,
+  capitalBudgetAmount: 45500000,
+  fundingGapAmount: 43000000,
   examBoardReview: 1,
   examBoardReady: 1,
   examBoardDueSoon: 2,
@@ -156,6 +170,14 @@ const demoState: AdminState = {
   resourceCampaigns: [
     { id: "campaign-1", campaignName: "Industry chair endowment drive", sourceType: "Corporate CSR", status: "Prospect Outreach", ownerName: "Development Office", targetAmount: 30000000, securedAmount: 8500000, reviewDueAtUtc: new Date(now + 9 * 86400000).toISOString() },
     { id: "campaign-2", campaignName: "Alumni scholarship fund 2026", sourceType: "Alumni Giving", status: "Active", ownerName: "Alumni Office", targetAmount: 12000000, securedAmount: 6400000, reviewDueAtUtc: new Date(now + 16 * 86400000).toISOString() }
+  ],
+  budgetPlans: [
+    { id: "budget-1", planName: "FY 2026 operating and capital plan", fiscalYear: "2026-27", status: "Board Review", ownerName: "Finance Planning Office", operatingBudgetAmount: 185000000, capitalBudgetAmount: 42000000, revenueTargetAmount: 248000000, committedSpendAmount: 61000000, contingencyReserveAmount: 12000000, reviewDueAtUtc: new Date(now + 11 * 86400000).toISOString() },
+    { id: "budget-2", planName: "Student support services expansion plan", fiscalYear: "2026-27", status: "Draft", ownerName: "Student Affairs and Finance", operatingBudgetAmount: 28000000, capitalBudgetAmount: 3500000, revenueTargetAmount: 31500000, committedSpendAmount: 8500000, contingencyReserveAmount: 2500000, reviewDueAtUtc: new Date(now + 18 * 86400000).toISOString() }
+  ],
+  budgetForecasts: [
+    { id: "forecast-1", scenarioName: "Three-year enrollment-led growth forecast", planningHorizonYears: 3, status: "Open", ownerName: "Strategic Planning Cell", projectedRevenueAmount: 780000000, projectedExpenseAmount: 712000000, capitalReserveAmount: 96000000, fundingGapAmount: 28000000, nextReviewAtUtc: new Date(now + 9 * 86400000).toISOString() },
+    { id: "forecast-2", scenarioName: "Research and innovation acceleration forecast", planningHorizonYears: 5, status: "Scenario Review", ownerName: "Research and Development Office", projectedRevenueAmount: 430000000, projectedExpenseAmount: 401000000, capitalReserveAmount: 54000000, fundingGapAmount: 15000000, nextReviewAtUtc: new Date(now + 16 * 86400000).toISOString() }
   ],
   examBoardItems: [
     { id: "board-1", courseCode: "CSE401", assessmentName: "Midterm Internal Board Packet", boardName: "Mid Semester Review Board", panelLead: "Dr. Priya Menon", status: "Board Review", boardNote: "Waiting for final moderation sign-off.", dueAtUtc: new Date(now + 2 * 86400000).toISOString(), updatedAtUtc: new Date(now - 4 * 3600000).toISOString() },
@@ -215,6 +237,9 @@ export default function AdminPage() {
           fetch(`${apiConfig.organization()}/api/v1/estate/contracts?pageSize=4`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/planning/initiatives?pageSize=4`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/resource-generation/campaigns?pageSize=4`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/budgeting/summary`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/budgeting/plans?pageSize=4`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/budgeting/forecasts?pageSize=4`, { headers }),
           fetch(`${apiConfig.exam()}/api/v1/exam-board/summary`, { headers }),
           fetch(`${apiConfig.exam()}/api/v1/exam-board/items?pageSize=4`, { headers })
         ]);
@@ -223,7 +248,7 @@ export default function AdminPage() {
           throw new Error("Unable to load the admin workspace.");
         }
 
-        const [users, finance, payment, comms, audit, federation, catalog, admissions, requests, hr, leaves, openings, procurement, requisitions, orders, governance, workOrders, researchProjects, accreditation, legalCases, incubation, estateContracts, planningInitiatives, resourceCampaigns, examBoardSummary, examBoardItems] = await Promise.all(responses.map((response) => response.json()));
+        const [users, finance, payment, comms, audit, federation, catalog, admissions, requests, hr, leaves, openings, procurement, requisitions, orders, governance, workOrders, researchProjects, accreditation, legalCases, incubation, estateContracts, planningInitiatives, resourceCampaigns, budgetSummary, budgetPlans, budgetForecasts, examBoardSummary, examBoardItems] = await Promise.all(responses.map((response) => response.json()));
         if (!cancelled) {
           setState({
             userCount: Array.isArray(users) ? users.length : 0,
@@ -259,6 +284,11 @@ export default function AdminPage() {
             contractRenewalsDue: governance?.contractRenewalsDue ?? 0,
             planningMilestonesDue: governance?.planningMilestonesDue ?? 0,
             activeResourceCampaigns: governance?.activeResourceCampaigns ?? 0,
+            budgetPlansUnderReview: budgetSummary?.plansUnderReview ?? 0,
+            forecastScenariosOpen: budgetSummary?.forecastScenariosOpen ?? 0,
+            operatingBudgetAmount: budgetSummary?.operatingBudgetAmount ?? 0,
+            capitalBudgetAmount: budgetSummary?.capitalBudgetAmount ?? 0,
+            fundingGapAmount: budgetSummary?.fundingGapAmount ?? 0,
             examBoardReview: examBoardSummary?.boardReview ?? 0,
             examBoardReady: examBoardSummary?.readyToRelease ?? 0,
             examBoardDueSoon: examBoardSummary?.dueSoon ?? 0,
@@ -274,6 +304,8 @@ export default function AdminPage() {
             estateContracts: estateContracts?.items ?? [],
             planningInitiatives: planningInitiatives?.items ?? [],
             resourceCampaigns: resourceCampaigns?.items ?? [],
+            budgetPlans: budgetPlans?.items ?? [],
+            budgetForecasts: budgetForecasts?.items ?? [],
             examBoardItems: examBoardItems?.items ?? []
           });
           setError(null);
@@ -375,6 +407,7 @@ export default function AdminPage() {
             ["Governance deadlines", loading ? "..." : `${state.complianceDeadlines} due | ${state.openLegalCases} legal`, "Accreditation, RTI, and compliance work is now visible in the admin layer."],
             ["Incubation and IRD", loading ? "..." : `${state.activeResearchProjects} projects | ${state.activeIncubations} ventures`, "Research delivery and startup mentoring no longer sit outside the ERP surface."],
             ["Estate and planning", loading ? "..." : `${state.contractRenewalsDue} renewals | ${state.planningMilestonesDue} milestones`, "Contracts and campus planning now sit inside the governance layer."],
+            ["Budget planning", loading ? "..." : `${state.budgetPlansUnderReview} plans | ${state.forecastScenariosOpen} forecasts`, "Long-range budget review now sits beside the rest of institution planning."],
             ["Exam board queue", loading ? "..." : `${state.examBoardReview} review | ${state.examBoardReady} ready`, "Assessment moderation and release control now sit with academic governance."]
           ].map(([label, value, note]) => (
             <article key={label as string} className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
@@ -564,6 +597,48 @@ export default function AdminPage() {
                   <div className="mt-3 flex gap-2">
                     <button type="button" onClick={() => mutate(`campaign-${item.id}`, `${apiConfig.organization()}/api/v1/resource-generation/campaigns/${item.id}/status`, { status: "Active", ownerName: item.ownerName, note: "Campaign pushed into active outreach." }, () => setState((current) => ({ ...current, resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, status: "Active" } : entry) })), (payload) => setState((current) => ({ ...current, resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `campaign-${item.id}` || item.status === "Active"} className="rounded-full bg-emerald-400/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:opacity-50">Activate</button>
                     <button type="button" onClick={() => mutate(`campaign-close-${item.id}`, `${apiConfig.organization()}/api/v1/resource-generation/campaigns/${item.id}/status`, { status: "Closed", ownerName: item.ownerName, note: "Campaign closed from admin workspace." }, () => setState((current) => ({ ...current, activeResourceCampaigns: Math.max(0, current.activeResourceCampaigns - 1), resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, status: "Closed" } : entry) })), (payload) => setState((current) => ({ ...current, activeResourceCampaigns: Math.max(0, current.activeResourceCampaigns - 1), resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `campaign-close-${item.id}` || item.status === "Closed"} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Close</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-5 md:grid-cols-2">
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(7,17,31,0.82)] p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Budget plans</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : `${state.budgetPlansUnderReview} plans under review`}</h2>
+            <p className="mt-3 text-sm text-fuchsia-100/90">{loading ? "..." : `${money(state.operatingBudgetAmount)} operating | ${money(state.capitalBudgetAmount)} capital | ${money(state.fundingGapAmount)} projected gap`}</p>
+            <div className="mt-5 space-y-3">
+              {state.budgetPlans.map((item) => (
+                <div key={item.id} className="rounded-[1rem] border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-white">{item.planName}</p>
+                  <p className="mt-1 text-sm text-fuchsia-100/90">{item.fiscalYear} | {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-400">{money(item.operatingBudgetAmount)} operating | {money(item.capitalBudgetAmount)} capital | review {dateLabel(item.reviewDueAtUtc)}</p>
+                  <p className="mt-2 text-xs text-slate-400">{money(item.committedSpendAmount)} committed | reserve {money(item.contingencyReserveAmount)}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => mutate(`budget-${item.id}`, `${apiConfig.organization()}/api/v1/budgeting/plans/${item.id}/status`, { status: "Board Review", ownerName: item.ownerName, note: "Moved into board review from admin workspace." }, () => setState((current) => ({ ...current, budgetPlans: current.budgetPlans.map((entry) => entry.id === item.id ? { ...entry, status: "Board Review" } : entry) })), (payload) => setState((current) => ({ ...current, budgetPlans: current.budgetPlans.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `budget-${item.id}` || item.status === "Board Review"} className="rounded-full bg-sky-400/20 px-3 py-2 text-xs font-semibold text-sky-100 disabled:opacity-50">Send Review</button>
+                    <button type="button" onClick={() => mutate(`budget-approve-${item.id}`, `${apiConfig.organization()}/api/v1/budgeting/plans/${item.id}/status`, { status: "Approved", ownerName: item.ownerName, note: "Budget approved from admin workspace." }, () => setState((current) => ({ ...current, budgetPlansUnderReview: Math.max(0, current.budgetPlansUnderReview - 1), budgetPlans: current.budgetPlans.map((entry) => entry.id === item.id ? { ...entry, status: "Approved" } : entry) })), (payload) => setState((current) => ({ ...current, budgetPlansUnderReview: Math.max(0, current.budgetPlansUnderReview - 1), budgetPlans: current.budgetPlans.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `budget-approve-${item.id}` || item.status === "Approved"} className="rounded-full bg-emerald-400/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:opacity-50">Approve</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(7,17,31,0.82)] p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Forecast scenarios</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : `${state.forecastScenariosOpen} long-range scenarios`}</h2>
+            <p className="mt-3 text-sm text-fuchsia-100/90">{loading ? "..." : "Enrollment, capital, and research growth scenarios are now part of the admin planning surface."}</p>
+            <div className="mt-5 space-y-3">
+              {state.budgetForecasts.map((item) => (
+                <div key={item.id} className="rounded-[1rem] border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-white">{item.scenarioName}</p>
+                  <p className="mt-1 text-sm text-fuchsia-100/90">{item.planningHorizonYears}-year horizon | {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-400">{money(item.projectedRevenueAmount)} revenue | {money(item.projectedExpenseAmount)} expense | gap {money(item.fundingGapAmount)}</p>
+                  <p className="mt-2 text-xs text-slate-400">Reserve {money(item.capitalReserveAmount)} | review {dateLabel(item.nextReviewAtUtc)}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => mutate(`forecast-${item.id}`, `${apiConfig.organization()}/api/v1/budgeting/forecasts/${item.id}/status`, { status: "Scenario Review", ownerName: item.ownerName, note: "Scenario moved into review from admin workspace." }, () => setState((current) => ({ ...current, budgetForecasts: current.budgetForecasts.map((entry) => entry.id === item.id ? { ...entry, status: "Scenario Review" } : entry) })), (payload) => setState((current) => ({ ...current, budgetForecasts: current.budgetForecasts.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `forecast-${item.id}` || item.status === "Scenario Review"} className="rounded-full bg-amber-300/20 px-3 py-2 text-xs font-semibold text-amber-50 disabled:opacity-50">Review</button>
+                    <button type="button" onClick={() => mutate(`forecast-close-${item.id}`, `${apiConfig.organization()}/api/v1/budgeting/forecasts/${item.id}/status`, { status: "Approved", ownerName: item.ownerName, note: "Forecast locked from admin workspace." }, () => setState((current) => ({ ...current, forecastScenariosOpen: Math.max(0, current.forecastScenariosOpen - 1), budgetForecasts: current.budgetForecasts.map((entry) => entry.id === item.id ? { ...entry, status: "Approved" } : entry) })), (payload) => setState((current) => ({ ...current, forecastScenariosOpen: Math.max(0, current.forecastScenariosOpen - 1), budgetForecasts: current.budgetForecasts.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `forecast-close-${item.id}` || item.status === "Approved"} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Lock Forecast</button>
                   </div>
                 </div>
               ))}

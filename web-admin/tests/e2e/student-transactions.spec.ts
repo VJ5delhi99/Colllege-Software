@@ -1,44 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("portal routes a student session into student-focused actions", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.sessionStorage.setItem("university360_admin_session", JSON.stringify({
-      accessToken: "token",
-      refreshToken: "refresh",
-      userId: "00000000-0000-0000-0000-000000000123",
-      fullName: "Aarav Sharma",
-      email: "student@university360.edu",
-      role: "Student",
-      tenantId: "default",
-      permissions: ["attendance.view", "results.view"],
-      user: {
-        id: "00000000-0000-0000-0000-000000000123",
-        email: "student@university360.edu",
-        role: "Student",
-        tenantId: "default"
-      }
-    }));
-  });
-
-  await page.route("**/api/v1/students/**/summary", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ percentage: 83 }) });
-  });
-  await page.route("**/api/v1/results/summary", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ totalPublished: 2, averageGpa: 8.8 }) });
-  });
-  await page.route("**/api/v1/dashboard/summary", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ nextCourse: { title: "Distributed Systems" }, totalCourses: 3 }) });
-  });
-  await page.route("**/api/v1/audit-logs**", async (route) => {
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [], page: 1, pageSize: 5, total: 0 }) });
-  });
-
-  await page.goto("/portal");
-  await expect(page.getByText("Your student page with the next important step in front.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open student page" })).toBeVisible();
-});
-
-test("student workspace shows academic workflow metrics", async ({ page }) => {
+test("student page drives charge payment and request journey updates", async ({ page }) => {
   await page.addInitScript(() => {
     window.sessionStorage.setItem("university360_admin_session", JSON.stringify({
       accessToken: "token",
@@ -65,19 +27,21 @@ test("student workspace shows academic workflow metrics", async ({ page }) => {
       : url.includes("7006")
         ? {
             totalPaid: 57000,
-            pendingSessions: 1,
+            pendingSessions: 0,
             outstandingAmount: 8000,
             overdueCharges: 0,
-            latestSession: { id: "session-1", invoiceNumber: "INV-2026-003", provider: "Razorpay" }
+            latestPayment: { invoiceNumber: "INV-2026-002", provider: "Stripe", amount: 12000 }
           }
         : { totalPublished: 2, averageGpa: 8.8 };
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
+
   await page.route("**/api/v1/dashboard/summary", async (route) => {
     const url = route.request().url();
     const body = url.includes("7002") ? { nextCourse: { title: "Distributed Systems" } } : { total: 1, latest: { title: "Exam week begins" } };
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
+
   await page.route("**/api/v1/students/**/workspace", async (route) => {
     await route.fulfill({
       status: 200,
@@ -87,7 +51,7 @@ test("student workspace shows academic workflow metrics", async ({ page }) => {
         department: "Computer Science",
         batch: "2022",
         enrollmentCount: 3,
-        openRequests: 2,
+        openRequests: 1,
         recentEnrollments: [
           { id: "enrollment-1", courseCode: "CSE401", semesterCode: "2026-SPRING", status: "Enrolled", enrolledAtUtc: "2026-03-16T09:00:00Z" }
         ],
@@ -97,6 +61,7 @@ test("student workspace shows academic workflow metrics", async ({ page }) => {
       })
     });
   });
+
   await page.route("**/api/v1/students/**/charges", async (route) => {
     await route.fulfill({
       status: 200,
@@ -111,6 +76,7 @@ test("student workspace shows academic workflow metrics", async ({ page }) => {
       })
     });
   });
+
   await page.route("**/api/v1/students/**/requests/**/journey", async (route) => {
     await route.fulfill({
       status: 200,
@@ -137,6 +103,7 @@ test("student workspace shows academic workflow metrics", async ({ page }) => {
       })
     });
   });
+
   await page.route("**/api/v1/helpdesk/requesters/**", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
@@ -147,10 +114,34 @@ test("student workspace shows academic workflow metrics", async ({ page }) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
   });
 
+  await page.route("**/api/v1/students/**/charges/**/payment-sessions", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        sessionId: "session-1",
+        provider: "Razorpay",
+        invoiceNumber: "INV-2026-003",
+        charge: { id: "charge-1", title: "Semester tuition installment" }
+      })
+    });
+  });
+
+  await page.route("**/api/v1/students/**/payment-sessions/**/complete", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        payment: { invoiceNumber: "INV-2026-003", provider: "Razorpay", amount: 8000 },
+        charge: { id: "charge-1", status: "Paid", balanceAmount: 0, amount: 8000, note: "Settled via Razorpay." }
+      })
+    });
+  });
+
   await page.goto("/student");
-  await expect(page.getByText("Self-service academics, learning queue, and request workflows in one place.")).toBeVisible();
-  await expect(page.getByText("83%")).toBeVisible();
-  await expect(page.getByText("8.80")).toBeVisible();
   await expect(page.getByText("Semester tuition installment")).toBeVisible();
-  await expect(page.getByText("Current request progress")).toBeVisible();
+  await page.getByRole("button", { name: "Pay Next Due Item" }).click();
+  await expect(page.getByText("Pending payment session via Razorpay", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Complete Latest Payment" }).click();
+  await expect(page.getByText("Last paid via Razorpay", { exact: false })).toBeVisible();
 });

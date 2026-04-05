@@ -81,6 +81,6 @@ test("operations hub shows notifications and audit records", async ({ page }) =>
 
   await page.goto("/ops");
   await expect(page.getByText("Operations Hub")).toBeVisible();
-  await expect(page.getByText("Mid-semester review schedule released")).toBeVisible();
+  await expect(page.getByText("Mid-semester review schedule released").first()).toBeVisible();
   await expect(page.getByText("student.enrollment.created")).toBeVisible();
 });

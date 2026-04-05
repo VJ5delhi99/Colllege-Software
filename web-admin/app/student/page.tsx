@@ -29,6 +29,55 @@ type ServiceRequestItem = {
   resolvedAtUtc?: string | null;
 };
 
+type StudentChargeItem = {
+  id: string;
+  chargeType: string;
+  title: string;
+  invoiceNumber: string;
+  amount: number;
+  balanceAmount: number;
+  currency: string;
+  status: string;
+  dueAtUtc: string;
+  note: string;
+};
+
+type RequestJourneyStep = {
+  id: string;
+  stepName: string;
+  stepKind: string;
+  status: string;
+  ownerName: string;
+  dueAtUtc: string;
+  completedAtUtc?: string | null;
+  note: string;
+};
+
+type RequestJourneyActivity = {
+  id: string;
+  stageName: string;
+  status: string;
+  actorName: string;
+  message: string;
+  createdAtUtc: string;
+};
+
+type RequestJourney = {
+  requestId: string;
+  requestType: string;
+  title: string;
+  status: string;
+  assignedTo: string;
+  completedSteps: number;
+  totalSteps: number;
+  currentStep: string;
+  nextAction: string;
+  readyForDownload: boolean;
+  waitingOnPayment: boolean;
+  steps: RequestJourneyStep[];
+  activities: RequestJourneyActivity[];
+};
+
 type HelpdeskTicketItem = {
   id: string;
   department: string;
@@ -47,6 +96,8 @@ type StudentState = {
   averageGpa: number;
   nextCourse: string;
   totalPaid: number;
+  outstandingAmount: number;
+  overdueCharges: number;
   pendingPayments: number;
   latestSessionId: string | null;
   latestInvoice: string;
@@ -60,6 +111,8 @@ type StudentState = {
   openRequests: number;
   recentEnrollments: EnrollmentItem[];
   recentRequests: ServiceRequestItem[];
+  recentCharges: StudentChargeItem[];
+  activeJourney: RequestJourney | null;
   helpdeskTickets: HelpdeskTicketItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
 };
@@ -70,6 +123,8 @@ const demoState: StudentState = {
   averageGpa: 8.8,
   nextCourse: "Distributed Systems",
   totalPaid: 57000,
+  outstandingAmount: 10500,
+  overdueCharges: 0,
   pendingPayments: 1,
   latestSessionId: "session-1",
   latestInvoice: "INV-2026-003",
@@ -111,6 +166,55 @@ const demoState: StudentState = {
       resolvedAtUtc: "2026-04-04T14:00:00Z"
     }
   ],
+  recentCharges: [
+    {
+      id: "charge-1",
+      chargeType: "Tuition",
+      title: "Semester tuition installment",
+      invoiceNumber: "INV-2026-003",
+      amount: 8000,
+      balanceAmount: 8000,
+      currency: "INR",
+      status: "Due",
+      dueAtUtc: "2026-04-10T10:00:00Z",
+      note: "Pending student checkout for the current installment."
+    },
+    {
+      id: "charge-2",
+      chargeType: "Examination",
+      title: "Examination registration fee",
+      invoiceNumber: "INV-2026-004",
+      amount: 2500,
+      balanceAmount: 2500,
+      currency: "INR",
+      status: "Due",
+      dueAtUtc: "2026-04-17T10:00:00Z",
+      note: "Required before exam hall-ticket release."
+    }
+  ],
+  activeJourney: {
+    requestId: "request-2",
+    requestType: "Transcript Certificate",
+    title: "Official transcript for graduate application",
+    status: "In Review",
+    assignedTo: "Examination Cell",
+    completedSteps: 2,
+    totalSteps: 4,
+    currentStep: "Document preparation",
+    nextAction: "Clear the payment step so the request can move into preparation.",
+    readyForDownload: false,
+    waitingOnPayment: true,
+    steps: [
+      { id: "step-1", stepName: "Request Received", stepKind: "Intake", status: "Completed", ownerName: "Student Services Desk", dueAtUtc: "2026-04-02T09:00:00Z", completedAtUtc: "2026-04-02T09:00:00Z", note: "The request was logged and routed." },
+      { id: "step-2", stepName: "Examination review", stepKind: "Review", status: "Completed", ownerName: "Examination Cell", dueAtUtc: "2026-04-03T09:00:00Z", completedAtUtc: "2026-04-03T15:00:00Z", note: "Academic records were verified." },
+      { id: "step-3", stepName: "Payment clearance", stepKind: "PaymentClearance", status: "Pending", ownerName: "Finance Office", dueAtUtc: "2026-04-04T09:00:00Z", note: "Outstanding dues need finance confirmation." },
+      { id: "step-4", stepName: "Digital delivery", stepKind: "Delivery", status: "Pending", ownerName: "Student Services Desk", dueAtUtc: "2026-04-05T09:00:00Z", note: "The final file will be released in the student page." }
+    ],
+    activities: [
+      { id: "activity-1", stageName: "Payment clearance", status: "Pending", actorName: "Finance Office", message: "Outstanding dues need finance confirmation.", createdAtUtc: "2026-04-04T09:30:00Z" },
+      { id: "activity-2", stageName: "Examination review", status: "Completed", actorName: "Examination Cell", message: "Academic records were verified.", createdAtUtc: "2026-04-03T15:00:00Z" }
+    ]
+  },
   helpdeskTickets: [
     {
       id: "ticket-1",
@@ -149,6 +253,86 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 1500) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function loadOptionalJson(url: string, headers: HeadersInit) {
+  try {
+    const response = await fetchWithTimeout(url, { headers });
+    if (!response.ok) {
+      return null;
+    }
+
+    return response.json();
+  } catch {
+    return null;
+  }
+}
+
+function createDemoJourney(request: ServiceRequestItem): RequestJourney {
+  return {
+    requestId: request.id,
+    requestType: request.requestType,
+    title: request.title,
+    status: "Submitted",
+    assignedTo: request.assignedTo ?? "Student Services Desk",
+    completedSteps: 1,
+    totalSteps: 3,
+    currentStep: "Service review",
+    nextAction: "The request is waiting for service review.",
+    readyForDownload: false,
+    waitingOnPayment: false,
+    steps: [
+      {
+        id: `${request.id}-step-1`,
+        stepName: "Request Received",
+        stepKind: "Intake",
+        status: "Completed",
+        ownerName: "Student Services Desk",
+        dueAtUtc: request.requestedAtUtc,
+        completedAtUtc: request.requestedAtUtc,
+        note: "The request was logged and routed."
+      },
+      {
+        id: `${request.id}-step-2`,
+        stepName: "Service review",
+        stepKind: "Review",
+        status: "Pending",
+        ownerName: request.assignedTo ?? "Student Services Desk",
+        dueAtUtc: request.requestedAtUtc,
+        note: "The request is being checked by the assigned team."
+      },
+      {
+        id: `${request.id}-step-3`,
+        stepName: "Student update",
+        stepKind: "Delivery",
+        status: "Pending",
+        ownerName: request.assignedTo ?? "Student Services Desk",
+        dueAtUtc: request.requestedAtUtc,
+        note: "The final update will be shared in this page."
+      }
+    ],
+    activities: [
+      {
+        id: `${request.id}-activity-1`,
+        stageName: "Request Received",
+        status: "Completed",
+        actorName: request.assignedTo ?? "Student Services Desk",
+        message: `${request.requestType} request submitted from the student page.`,
+        createdAtUtc: request.requestedAtUtc
+      }
+    ]
+  };
+}
+
 export default function StudentPage() {
   const [state, setState] = useState<StudentState>(demoState);
   const [loading, setLoading] = useState(true);
@@ -180,12 +364,12 @@ export default function StudentPage() {
         };
 
         const [attendanceResponse, resultSummaryResponse, academicResponse, financeResponse, notificationsResponse, workspaceResponse] = await Promise.all([
-          fetch(`${apiConfig.attendance()}/api/v1/students/${session.user.id}/summary`, { headers }),
-          fetch(`${apiConfig.exam()}/api/v1/students/${session.user.id}/summary`, { headers }),
-          fetch(`${apiConfig.academic()}/api/v1/dashboard/summary`, { headers }),
-          fetch(`${apiConfig.finance()}/api/v1/students/${session.user.id}/summary`, { headers }),
-          fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers }),
-          fetch(`${apiConfig.student()}/api/v1/students/${session.user.id}/workspace`, { headers })
+          fetchWithTimeout(`${apiConfig.attendance()}/api/v1/students/${session.user.id}/summary`, { headers }),
+          fetchWithTimeout(`${apiConfig.exam()}/api/v1/students/${session.user.id}/summary`, { headers }),
+          fetchWithTimeout(`${apiConfig.academic()}/api/v1/dashboard/summary`, { headers }),
+          fetchWithTimeout(`${apiConfig.finance()}/api/v1/students/${session.user.id}/summary`, { headers }),
+          fetchWithTimeout(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers }),
+          fetchWithTimeout(`${apiConfig.student()}/api/v1/students/${session.user.id}/workspace`, { headers })
         ]);
 
         if (!attendanceResponse.ok || !resultSummaryResponse.ok || !academicResponse.ok || !financeResponse.ok || !notificationsResponse.ok || !workspaceResponse.ok) {
@@ -202,13 +386,20 @@ export default function StudentPage() {
         ]);
 
         const courseCodes = Array.from(new Set(((workspacePayload?.recentEnrollments ?? []) as EnrollmentItem[]).map((item) => item.courseCode)));
-        const helpdeskResponse = await fetch(`${apiConfig.communication()}/api/v1/helpdesk/requesters/${session.user.id}/tickets?pageSize=4`, { headers });
-        const helpdeskPayload = helpdeskResponse.ok ? await helpdeskResponse.json() : { items: [] };
-        const lmsSummaryResponse = await fetch(
-          `${apiConfig.lms()}/api/v1/workspace/summary${courseCodes.length > 0 ? `?courseCodes=${encodeURIComponent(courseCodes.join(","))}` : ""}`,
-          { headers }
-        );
-        const lmsSummaryPayload = lmsSummaryResponse.ok ? await lmsSummaryResponse.json() : { materials: 0, assignments: 0 };
+        const focusRequestId = ((workspacePayload?.recentRequests ?? []) as ServiceRequestItem[]).find((item) => item.status !== "Fulfilled")?.id
+          ?? ((workspacePayload?.recentRequests ?? []) as ServiceRequestItem[])[0]?.id;
+
+        const [helpdeskPayload, lmsSummaryPayload, chargesPayload, journeyPayload] = await Promise.all([
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/helpdesk/requesters/${session.user.id}/tickets?pageSize=4`, headers),
+          loadOptionalJson(
+            `${apiConfig.lms()}/api/v1/workspace/summary${courseCodes.length > 0 ? `?courseCodes=${encodeURIComponent(courseCodes.join(","))}` : ""}`,
+            headers
+          ),
+          loadOptionalJson(`${apiConfig.finance()}/api/v1/students/${session.user.id}/charges`, headers),
+          focusRequestId
+            ? loadOptionalJson(`${apiConfig.student()}/api/v1/students/${session.user.id}/requests/${focusRequestId}/journey`, headers)
+            : Promise.resolve(null)
+        ]);
 
         if (!cancelled) {
           setState({
@@ -217,6 +408,8 @@ export default function StudentPage() {
             averageGpa: resultSummaryPayload?.averageGpa ?? 0,
             nextCourse: academicPayload?.nextCourse?.title ?? "No class scheduled",
             totalPaid: financePayload?.totalPaid ?? 0,
+            outstandingAmount: financePayload?.outstandingAmount ?? chargesPayload?.outstandingAmount ?? 0,
+            overdueCharges: financePayload?.overdueCharges ?? chargesPayload?.overdue ?? 0,
             pendingPayments: financePayload?.pendingSessions ?? 0,
             latestSessionId: financePayload?.latestSession?.id ?? null,
             latestInvoice: financePayload?.latestSession?.invoiceNumber ?? financePayload?.latestPayment?.invoiceNumber ?? "No invoice",
@@ -234,6 +427,8 @@ export default function StudentPage() {
             openRequests: workspacePayload?.openRequests ?? 0,
             recentEnrollments: (workspacePayload?.recentEnrollments ?? []) as EnrollmentItem[],
             recentRequests: (workspacePayload?.recentRequests ?? []) as ServiceRequestItem[],
+            recentCharges: (chargesPayload?.items ?? []) as StudentChargeItem[],
+            activeJourney: (journeyPayload ?? null) as RequestJourney | null,
             helpdeskTickets: (helpdeskPayload?.items ?? []) as HelpdeskTicketItem[],
             notifications: notificationsPayload?.items ?? []
           });
@@ -282,7 +477,8 @@ export default function StudentPage() {
         setState((current) => ({
           ...current,
           openRequests: current.openRequests + 1,
-          recentRequests: [nextRequest, ...current.recentRequests].slice(0, 4)
+          recentRequests: [nextRequest, ...current.recentRequests].slice(0, 4),
+          activeJourney: createDemoJourney(nextRequest)
         }));
         return;
       }
@@ -309,10 +505,15 @@ export default function StudentPage() {
       }
 
       const payload = (await response.json()) as ServiceRequestItem;
+      const journeyPayload = await loadOptionalJson(`${apiConfig.student()}/api/v1/students/${session.user.id}/requests/${payload.id}/journey`, {
+        Authorization: `Bearer ${session.accessToken}`,
+        "X-Tenant-Id": session.user.tenantId
+      });
       setState((current) => ({
         ...current,
         openRequests: current.openRequests + 1,
-        recentRequests: [payload, ...current.recentRequests].slice(0, 4)
+        recentRequests: [payload, ...current.recentRequests].slice(0, 4),
+        activeJourney: (journeyPayload ?? current.activeJourney) as RequestJourney | null
       }));
       setError(null);
     } catch (requestError) {
@@ -387,33 +588,41 @@ export default function StudentPage() {
     setPaying(true);
 
     try {
+      const nextCharge = state.recentCharges.find((item) => item.balanceAmount > 0 && item.status !== "Paid");
       if (demoMode) {
-      setState((current) => ({
-        ...current,
-        pendingPayments: current.pendingPayments + 1,
-        latestSessionId: `demo-session-${Date.now()}`,
-        latestInvoice: `INV-${new Date().getFullYear()}-010`,
-        latestFinanceStatus: "Pending payment session via Razorpay"
-      }));
+        setState((current) => ({
+          ...current,
+          pendingPayments: current.pendingPayments + 1,
+          latestSessionId: `demo-session-${Date.now()}`,
+          latestInvoice: nextCharge?.invoiceNumber ?? `INV-${new Date().getFullYear()}-010`,
+          latestFinanceStatus: `Pending payment session via Razorpay${nextCharge ? ` for ${nextCharge.title}` : ""}`
+        }));
         return;
       }
 
       const session = await getAdminSession();
-      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
-      const response = await fetch(`${apiConfig.finance()}/api/v1/students/${session.user.id}/payment-sessions`, {
+      const invoiceNumber = nextCharge?.invoiceNumber ?? `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+      const response = await fetch(nextCharge
+        ? `${apiConfig.finance()}/api/v1/students/${session.user.id}/charges/${nextCharge.id}/payment-sessions`
+        : `${apiConfig.finance()}/api/v1/students/${session.user.id}/payment-sessions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         },
-        body: JSON.stringify({
-          tenantId: session.user.tenantId,
-          amount: 8000,
-          currency: "INR",
-          provider: "Razorpay",
-          invoiceNumber
-        })
+        body: JSON.stringify(nextCharge
+          ? {
+              tenantId: session.user.tenantId,
+              provider: "Razorpay"
+            }
+          : {
+              tenantId: session.user.tenantId,
+              amount: 8000,
+              currency: "INR",
+              provider: "Razorpay",
+              invoiceNumber
+            })
       });
 
       if (!response.ok) {
@@ -427,7 +636,7 @@ export default function StudentPage() {
         pendingPayments: current.pendingPayments + 1,
         latestSessionId: payload?.sessionId ?? current.latestSessionId,
         latestInvoice: payload?.invoiceNumber ?? invoiceNumber,
-        latestFinanceStatus: `Pending payment session via ${payload?.provider ?? "gateway"}`
+        latestFinanceStatus: `Pending payment session via ${payload?.provider ?? "gateway"}${payload?.charge?.title ? ` for ${payload.charge.title}` : ""}`
       }));
       setError(null);
     } catch (paymentError) {
@@ -449,9 +658,13 @@ export default function StudentPage() {
         setState((current) => ({
           ...current,
           totalPaid: current.totalPaid + 8000,
+          outstandingAmount: Math.max(current.outstandingAmount - 8000, 0),
           pendingPayments: Math.max(current.pendingPayments - 1, 0),
           latestSessionId: null,
-          latestFinanceStatus: "Last paid via Razorpay"
+          latestFinanceStatus: "Last paid via Razorpay",
+          recentCharges: current.recentCharges.map((item, index) =>
+            index === 0 ? { ...item, status: "Paid", balanceAmount: 0, note: "Settled from the student page." } : item
+          )
         }));
         return;
       }
@@ -471,13 +684,16 @@ export default function StudentPage() {
 
       const payload = await response.json();
       const payment = payload?.payment;
+      const charge = payload?.charge;
       setState((current) => ({
         ...current,
         totalPaid: current.totalPaid + (payment?.amount ?? 0),
+        outstandingAmount: Math.max(current.outstandingAmount - (charge?.amount ?? payment?.amount ?? 0), 0),
         pendingPayments: Math.max(current.pendingPayments - 1, 0),
         latestSessionId: null,
         latestInvoice: payment?.invoiceNumber ?? current.latestInvoice,
-        latestFinanceStatus: `Last paid via ${payment?.provider ?? "gateway"}`
+        latestFinanceStatus: `Last paid via ${payment?.provider ?? "gateway"}`,
+        recentCharges: current.recentCharges.map((item) => item.id === charge?.id ? { ...item, ...charge } : item)
       }));
       setError(null);
     } catch (paymentError) {
@@ -545,14 +761,22 @@ export default function StudentPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Academic identity</p>
             <h2 className="mt-3 text-2xl font-semibold text-white">{loading ? "Loading profile..." : `${state.department} | Batch ${state.batch}`}</h2>
             <p className="mt-3 text-sm leading-6 text-slate-300">Status: {loading ? "..." : state.academicStatus}. Next course: {loading ? "..." : state.nextCourse}.</p>
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
                 <p className="text-sm text-slate-400">Total paid</p>
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : formatMoney(state.totalPaid)}</p>
               </div>
               <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Amount due</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : formatMoney(state.outstandingAmount)}</p>
+              </div>
+              <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
                 <p className="text-sm text-slate-400">Pending payments</p>
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.pendingPayments}</p>
+              </div>
+              <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Overdue items</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.overdueCharges}</p>
               </div>
             </div>
             <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -563,7 +787,7 @@ export default function StudentPage() {
                 disabled={paying}
                 className="rounded-full border border-amber-300/20 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 disabled:opacity-60"
               >
-                {paying ? "Preparing..." : "Start Fee Payment"}
+                {paying ? "Preparing..." : "Pay Next Due Item"}
               </button>
               <button
                 type="button"
@@ -573,6 +797,23 @@ export default function StudentPage() {
               >
                 {paying ? "Updating..." : "Complete Latest Payment"}
               </button>
+            </div>
+            <div className="mt-6 space-y-3">
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Current dues and fee items</p>
+              {state.recentCharges.map((item) => (
+                <article key={item.id} className="rounded-[1.2rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-white">{item.title}</p>
+                      <p className="mt-1 text-sm text-slate-400">{item.chargeType} | {item.invoiceNumber}</p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-300">{formatMoney(item.balanceAmount)} due by {formatTimestamp(item.dueAtUtc)}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.note}</p>
+                </article>
+              ))}
+              {!loading && state.recentCharges.length === 0 ? <div className="rounded-[1.2rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No student charges are waiting right now.</div> : null}
             </div>
           </article>
 
@@ -638,6 +879,49 @@ export default function StudentPage() {
               </button>
             </div>
 
+            <div className="mt-6 rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-cyan-200">Current request progress</p>
+                  <h3 className="mt-2 text-lg font-semibold text-white">{state.activeJourney?.title ?? "No request selected"}</h3>
+                </div>
+                {state.activeJourney ? (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">
+                    {state.activeJourney.completedSteps}/{state.activeJourney.totalSteps} steps
+                  </span>
+                ) : null}
+              </div>
+              {state.activeJourney ? (
+                <>
+                  <p className="mt-3 text-sm leading-6 text-slate-300">{state.activeJourney.requestType} | {state.activeJourney.status} | {state.activeJourney.currentStep}</p>
+                  <p className="mt-2 text-sm leading-6 text-cyan-100/90">{state.activeJourney.nextAction}</p>
+                  <div className="mt-4 space-y-3">
+                    {state.activeJourney.steps.map((step) => (
+                      <div key={step.id} className="rounded-[1rem] border border-white/10 bg-slate-950/40 px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-white">{step.stepName}</p>
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-slate-300">{step.status}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-400">{step.ownerName} | due {formatTimestamp(step.dueAtUtc)}</p>
+                        <p className="mt-2 text-sm leading-6 text-slate-400">{step.note}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {state.activeJourney.activities.map((item) => (
+                      <div key={item.id} className="rounded-[1rem] border border-white/10 bg-slate-950/30 px-3 py-3">
+                        <p className="text-sm font-medium text-white">{item.stageName} | {item.status}</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-400">{item.message}</p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.16em] text-cyan-200">{item.actorName} | {formatTimestamp(item.createdAtUtc)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-slate-400">Open a request to see each step, the current owner, and the latest activity in one place.</p>
+              )}
+            </div>
+
             <div className="mt-5 space-y-4">
               {state.recentRequests.map((item) => (
                 <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
@@ -651,7 +935,11 @@ export default function StudentPage() {
                   {item.resolutionNote ? <p className="mt-2 text-sm leading-6 text-emerald-200">{item.resolutionNote}</p> : null}
                   {item.fulfillmentReference ? <p className="mt-2 text-sm leading-6 text-cyan-200">Reference: {item.fulfillmentReference}</p> : null}
                   {item.deliveryChannel ? <p className="mt-2 text-sm leading-6 text-cyan-200">Delivery: {item.deliveryChannel}</p> : null}
-                  {item.downloadUrl ? <p className="mt-2 break-all text-sm leading-6 text-slate-400">{item.downloadUrl}</p> : null}
+                  {item.downloadUrl ? (
+                    <a href={item.downloadUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-sm font-medium text-cyan-200 transition hover:text-cyan-100">
+                      Open document download
+                    </a>
+                  ) : null}
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.requestedAtUtc)}</p>
                   {item.resolvedAtUtc ? <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200">Resolved {formatTimestamp(item.resolvedAtUtc)}</p> : null}
                 </article>
