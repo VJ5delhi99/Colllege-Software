@@ -219,13 +219,22 @@ app.MapGet("/api/v1/admissions/summary", async (HttpContext httpContext, Communi
 {
     var tenantId = httpContext.GetValidatedTenantId();
     var inquiries = await dbContext.AdmissionInquiries.Where(x => x.TenantId == tenantId).ToListAsync();
+    var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == tenantId).ToListAsync();
 
     return Results.Ok(new
     {
         total = inquiries.Count,
         newItems = inquiries.Count(x => x.Status == "New"),
         inReview = inquiries.Count(x => x.Status == "In Review"),
-        latest = inquiries.OrderByDescending(x => x.CreatedAtUtc).FirstOrDefault()
+        latest = inquiries.OrderByDescending(x => x.CreatedAtUtc).FirstOrDefault(),
+        applications = new
+        {
+            total = applications.Count,
+            submitted = applications.Count(x => x.Status == "Submitted"),
+            underReview = applications.Count(x => x.Status == "Under Review"),
+            qualified = applications.Count(x => x.Status == "Qualified"),
+            offered = applications.Count(x => x.Status == "Offered")
+        }
     });
 }).RequirePermissions("announcements.create");
 
@@ -255,6 +264,121 @@ app.MapPost("/api/v1/admissions/inquiries/{id:guid}/status", async (Guid id, Htt
 
     await dbContext.SaveChangesAsync();
     return Results.Ok(inquiry);
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/applications", async (HttpContext httpContext, [FromBody] CreateAdmissionApplicationRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+
+    if (string.IsNullOrWhiteSpace(request.ApplicantName) || string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.ProgramName))
+    {
+        return Results.BadRequest(new { message = "Applicant name, email, and program name are required." });
+    }
+
+    AdmissionInquiry? inquiry = null;
+    if (request.InquiryId.HasValue)
+    {
+        inquiry = await dbContext.AdmissionInquiries.FirstOrDefaultAsync(x => x.Id == request.InquiryId.Value && x.TenantId == tenantId);
+        if (inquiry is null)
+        {
+            return Results.NotFound(new { message = "Inquiry not found." });
+        }
+    }
+
+    var application = new AdmissionApplication
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        InquiryId = request.InquiryId,
+        ApplicantName = request.ApplicantName.Trim(),
+        Email = request.Email.Trim(),
+        Phone = request.Phone?.Trim() ?? string.Empty,
+        CampusName = request.CampusName?.Trim() ?? inquiry?.PreferredCampus ?? string.Empty,
+        ProgramName = request.ProgramName.Trim(),
+        Stage = "Application Review",
+        Status = "Submitted",
+        ApplicationNumber = $"APP-{DateTimeOffset.UtcNow:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UpdatedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    if (inquiry is not null)
+    {
+        inquiry.Status = "Converted";
+        inquiry.AssignedTo = request.AssignedTo?.Trim() ?? inquiry.AssignedTo;
+        inquiry.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    }
+
+    dbContext.AdmissionApplications.Add(application);
+    dbContext.Notifications.Add(new Notification
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Title = $"Application created for {application.ApplicantName}",
+        Message = $"{application.ProgramName} | {application.CampusName}",
+        Audience = "Admin",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        Source = "admissions"
+    });
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.application.created",
+        EntityId = application.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{application.ApplicantName} application created for {application.ProgramName}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/admissions/applications/{application.Id}", application);
+}).RequirePermissions("announcements.create");
+
+app.MapGet("/api/v1/admissions/applications", async (HttpContext httpContext, CommunicationDbContext dbContext, string? status, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+
+    var query = dbContext.AdmissionApplications.Where(x => x.TenantId == tenantId);
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        query = query.Where(x => x.Status == status);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderByDescending(x => x.CreatedAtUtc).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/applications/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateAdmissionApplicationStatusRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var application = await dbContext.AdmissionApplications.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (application is null)
+    {
+        return Results.NotFound();
+    }
+
+    application.Status = request.Status;
+    application.Stage = request.Stage?.Trim() ?? application.Stage;
+    application.AssignedTo = request.AssignedTo?.Trim() ?? application.AssignedTo;
+    application.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.application.status-updated",
+        EntityId = application.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{application.ApplicantName} application moved to {request.Status} ({application.Stage}).",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(application);
 }).RequirePermissions("announcements.create");
 
 app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, CommunicationDbContext dbContext, int page = 1, int pageSize = 20) =>
@@ -387,12 +511,53 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.AdmissionApplications.AnyAsync())
+    {
+        dbContext.AdmissionApplications.AddRange(
+        [
+            new AdmissionApplication
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                ApplicantName = "Riya Menon",
+                Email = "riya.menon@example.com",
+                Phone = "+91 98765 10001",
+                CampusName = "North City Campus",
+                ProgramName = "B.Tech Computer Science and Engineering",
+                Stage = "Application Review",
+                Status = "Submitted",
+                AssignedTo = "Admissions Desk",
+                ApplicationNumber = "APP-20260405-1001",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-5),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-5)
+            },
+            new AdmissionApplication
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                ApplicantName = "Aditya Rao",
+                Email = "aditya.rao@example.com",
+                Phone = "+91 98765 10002",
+                CampusName = "Health Sciences Campus",
+                ProgramName = "B.Sc Allied Health Sciences",
+                Stage = "Interview Scheduling",
+                Status = "Qualified",
+                AssignedTo = "Admissions Desk",
+                ApplicationNumber = "APP-20260405-1002",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-8)
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
 public sealed record CreateAnnouncementRequest(string TenantId, string Title, string Body, string Audience);
 public sealed record AdmissionInquiryRequest(string TenantId, string FullName, string Email, string? Phone, string? PreferredCampus, string InterestedProgram, string Message);
 public sealed record UpdateInquiryStatusRequest(string Status, string? AssignedTo);
+public sealed record CreateAdmissionApplicationRequest(Guid? InquiryId, string ApplicantName, string Email, string? Phone, string? CampusName, string ProgramName, string? AssignedTo);
+public sealed record UpdateAdmissionApplicationStatusRequest(string Status, string? Stage, string? AssignedTo);
 
 public sealed class Announcement
 {
@@ -441,6 +606,24 @@ public sealed class AdmissionInquiry
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
+public sealed class AdmissionApplication
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid? InquiryId { get; set; }
+    public string ApplicationNumber { get; set; } = string.Empty;
+    public string ApplicantName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public string CampusName { get; set; } = string.Empty;
+    public string ProgramName { get; set; } = string.Empty;
+    public string Stage { get; set; } = "Application Review";
+    public string Status { get; set; } = "Submitted";
+    public string AssignedTo { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
 public sealed class AuditLogEntry
 {
     public Guid Id { get; set; }
@@ -458,5 +641,6 @@ public sealed class CommunicationDbContext(DbContextOptions<CommunicationDbConte
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<TickerItem> TickerItems => Set<TickerItem>();
     public DbSet<AdmissionInquiry> AdmissionInquiries => Set<AdmissionInquiry>();
+    public DbSet<AdmissionApplication> AdmissionApplications => Set<AdmissionApplication>();
     public DbSet<AuditLogEntry> AuditLogs => Set<AuditLogEntry>();
 }

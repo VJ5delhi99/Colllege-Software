@@ -466,6 +466,7 @@ services:
       EXPO_PUBLIC_ATTENDANCE_API_URL: http://localhost:7003
       EXPO_PUBLIC_COMMUNICATION_API_URL: http://localhost:7004
       EXPO_PUBLIC_EXAM_API_URL: http://localhost:7005
+      EXPO_PUBLIC_FINANCE_API_URL: http://localhost:7006
       EXPO_PUBLIC_AI_ASSISTANT_URL: http://localhost:7007/api/chat
     ports:
       - "3001:3001"
@@ -479,6 +480,8 @@ services:
       communication-service:
         condition: service_started
       exam-service:
+        condition: service_started
+      finance-service:
         condition: service_started
       ai-assistant-service:
         condition: service_started

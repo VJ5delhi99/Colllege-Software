@@ -1,6 +1,6 @@
 import { Link } from "expo-router";
 import { useEffect, useState } from "react";
-import { Bell, CalendarDays, GraduationCap, ScanLine } from "lucide-react-native";
+import { Bell, CalendarDays, GraduationCap, ScanLine, Wallet } from "lucide-react-native";
 import { Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 import { getStudentSession } from "./auth-client";
 import { apiConfig } from "./api-config";
@@ -14,10 +14,14 @@ type DashboardState = {
   results: string;
   announcements: string;
   schedule: string;
+  finance: string;
   principalBlogTitle: string;
   principalBlogBody: string;
   nextClassTitle: string;
   nextClassMeta: string;
+  paymentTitle: string;
+  paymentMeta: string;
+  notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
   error: string | null;
 };
 
@@ -26,12 +30,41 @@ const initialState: DashboardState = {
   results: "--",
   announcements: "--",
   schedule: "--",
+  finance: "--",
   principalBlogTitle: "Loading updates",
   principalBlogBody: "Fetching campus announcements and handbook highlights.",
   nextClassTitle: "Loading class",
   nextClassMeta: "Fetching schedule",
+  paymentTitle: "Loading payments",
+  paymentMeta: "Fetching finance posture",
+  notifications: [],
   error: null
 };
+
+async function fetchJson(url: string, headers: HeadersInit) {
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    throw new Error(`Request failed for ${url}`);
+  }
+
+  return response.json();
+}
+
+function formatMoneyCompact(value: number) {
+  return `INR ${new Intl.NumberFormat("en-IN", {
+    notation: "compact",
+    compactDisplay: "short",
+    maximumFractionDigits: 1
+  })
+    .format(value)
+    .replace(/\s+/g, "")}`;
+}
+
+function formatTimestamp(value: string) {
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium"
+  }).format(new Date(value));
+}
 
 export default function HomeScreen() {
   const [state, setState] = useState(initialState);
@@ -57,27 +90,50 @@ export default function HomeScreen() {
     }
 
     getStudentSession()
-      .then((session) =>
-        Promise.all([
-          fetch(`${apiConfig.attendance()}/api/v1/students/${session.user.id}/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
-          fetch(`${apiConfig.exam()}/api/v1/results/${session.user.id}`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
-          fetch(`${apiConfig.communication()}/api/v1/dashboard/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json()),
-          fetch(`${apiConfig.academic()}/api/v1/dashboard/summary`, { headers: { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId } }).then((response) => response.json())
-        ])
-      )
-      .then(([attendance, results, communication, academic]) => {
-        const latestResult = Array.isArray(results) && results.length > 0 ? results[0] : null;
+      .then(async (session) => {
+        const headers = {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        };
+
+        const [attendance, results, communication, academic, finance, notifications] = await Promise.all([
+          fetchJson(`${apiConfig.attendance()}/api/v1/students/${session.user.id}/summary`, headers),
+          fetchJson(`${apiConfig.exam()}/api/v1/students/${session.user.id}/summary`, headers),
+          fetchJson(`${apiConfig.communication()}/api/v1/dashboard/summary`, headers),
+          fetchJson(`${apiConfig.academic()}/api/v1/dashboard/summary`, headers),
+          fetchJson(`${apiConfig.finance()}/api/v1/students/${session.user.id}/summary`, headers),
+          fetchJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=3`, headers)
+        ]);
+
+        return { attendance, results, communication, academic, finance, notifications };
+      })
+      .then(({ attendance, results, communication, academic, finance, notifications }) => {
+        const latestResult = results?.latest ?? null;
+        const latestPayment = finance?.latestPayment ?? null;
+        const latestSession = finance?.latestSession ?? null;
         setState({
           attendance: `${attendance?.percentage ?? 0}%`,
-          results: latestResult ? `${latestResult.gpa} GPA` : "No GPA",
-          announcements: `${communication?.total ?? 0} New`,
+          results: latestResult ? `${latestResult.gpa} GPA` : `${results?.averageGpa ?? 0} GPA`,
+          announcements: `${notifications?.items?.length ?? communication?.total ?? 0} Updates`,
           schedule: academic?.nextCourse ? academic.nextCourse.startTime : "No class",
+          finance: formatMoneyCompact(finance?.totalPaid ?? 0),
           principalBlogTitle: communication?.latest?.title ?? "No announcement available",
           principalBlogBody: communication?.latest?.body ?? "Campus communication feed is empty.",
           nextClassTitle: academic?.nextCourse?.title ?? "No class scheduled",
           nextClassMeta: academic?.nextCourse
             ? `${academic.nextCourse.room} - ${academic.nextCourse.startTime} - ${academic.nextCourse.courseCode}`
             : "Schedule service returned no upcoming class.",
+          paymentTitle: latestSession
+            ? `Pending ${latestSession.invoiceNumber ?? "session"}`
+            : latestPayment
+              ? `Last paid ${latestPayment.invoiceNumber ?? "invoice"}`
+              : "No finance activity",
+          paymentMeta: latestSession
+            ? `${latestSession.provider ?? "Gateway"} session is still waiting for completion.`
+            : latestPayment
+              ? `${latestPayment.currency ?? "INR"} ${latestPayment.amount ?? 0} paid via ${latestPayment.provider ?? "gateway"}.`
+              : "No recent student payment activity was returned.",
+          notifications: notifications?.items ?? [],
           error: null
         });
       })
@@ -104,7 +160,8 @@ export default function HomeScreen() {
     { label: "Attendance", value: state.attendance, icon: ScanLine },
     { label: "Results", value: state.results, icon: GraduationCap },
     { label: "Announcements", value: state.announcements, icon: Bell },
-    { label: "Schedule", value: state.schedule, icon: CalendarDays }
+    { label: "Schedule", value: state.schedule, icon: CalendarDays },
+    { label: "Finance", value: state.finance, icon: Wallet }
   ];
 
   return (
@@ -180,7 +237,7 @@ export default function HomeScreen() {
                 animate={{ opacity: 1, translateY: 0 }}
                 transition={{ delay: 180 + index * 80, type: "timing", duration: 450 }}
                 style={{
-                  width: "47%",
+                  width: "48%",
                   minHeight: 140,
                   padding: 18,
                   borderRadius: 22,
@@ -196,6 +253,61 @@ export default function HomeScreen() {
             );
           })}
         </View>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 420, type: "timing", duration: 450 }}
+          style={{
+            borderRadius: 24,
+            padding: 20,
+            backgroundColor: "rgba(245, 158, 11, 0.12)",
+            borderWidth: 1,
+            borderColor: "rgba(253, 224, 71, 0.18)"
+          }}
+        >
+          <Text style={{ color: "#fde68a", fontSize: 13 }}>Finance Posture</Text>
+          <Text style={{ color: "#fff7ed", fontSize: 22, fontWeight: "700", marginTop: 8 }}>
+            {state.paymentTitle}
+          </Text>
+          <Text style={{ color: "#fed7aa", marginTop: 10 }}>
+            {state.paymentMeta}
+          </Text>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 520, type: "timing", duration: 450 }}
+          style={{
+            borderRadius: 24,
+            padding: 20,
+            backgroundColor: "rgba(255,255,255,0.05)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.08)"
+          }}
+        >
+          <Text style={{ color: "#7dd3fc", fontSize: 13 }}>Recent Updates</Text>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.notifications.map((item) => (
+              <View
+                key={item.id}
+                style={{
+                  borderRadius: 18,
+                  padding: 14,
+                  backgroundColor: "rgba(7,17,31,0.55)",
+                  borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.06)"
+                }}
+              >
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.message}</Text>
+                <Text style={{ color: "#7dd3fc", marginTop: 8, fontSize: 12 }}>{formatTimestamp(item.createdAtUtc)}</Text>
+              </View>
+            ))}
+            {state.notifications.length === 0 ? <Text style={{ color: "#94a3b8" }}>No recent updates are available.</Text> : null}
+          </View>
+        </AnimatedSurface>
 
         <Link href="/chat" asChild>
           <Pressable

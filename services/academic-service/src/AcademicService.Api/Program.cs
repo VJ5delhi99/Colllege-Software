@@ -72,6 +72,28 @@ app.MapGet("/api/v1/dashboard/summary", async (HttpContext httpContext, Academic
     });
 }).RequirePermissions("results.view");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/summary", async (Guid teacherId, HttpContext httpContext, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var courses = await dbContext.Courses
+        .Where(x => x.TenantId == tenantId && x.FacultyId == teacherId)
+        .OrderBy(x => x.DayOfWeek)
+        .ThenBy(x => x.StartTime)
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        totalCourses = courses.Count,
+        nextCourse = courses.FirstOrDefault(),
+        teachingLoad = courses.Select(x => x.CourseCode).Distinct().Count()
+    });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/public/homepage", async (AcademicDbContext dbContext, string tenantId = "default") =>
 {
     var colleges = await dbContext.Colleges.Where(x => x.TenantId == tenantId).OrderBy(x => x.Name).ToListAsync();
@@ -463,6 +485,23 @@ static async Task SeedAcademicDataAsync(WebApplication app)
 
 static string[] SplitList(string value) =>
     value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+static bool CanAccessSubject(HttpContext httpContext, Guid requestedUserId, params string[] elevatedRoles)
+{
+    var role = httpContext.User.FindFirst("role")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+        ?? string.Empty;
+
+    if (elevatedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var currentUserId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.User.FindFirst("sub")?.Value;
+
+    return Guid.TryParse(currentUserId, out var parsedUserId) && parsedUserId == requestedUserId;
+}
 
 public sealed record CreateCourseRequest(
     string TenantId,

@@ -73,6 +73,27 @@ app.MapGet("/api/v1/results/summary", async (HttpContext httpContext, ExamDbCont
     });
 }).RequirePermissions("results.view");
 
+app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, HttpContext httpContext, ExamDbContext dbContext) =>
+{
+    if (!CanAccessStudentRecord(httpContext, studentId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var published = await dbContext.StudentResults
+        .Where(x => x.TenantId == tenantId && x.StudentId == studentId && x.Published)
+        .OrderByDescending(x => x.PublishedAtUtc)
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        totalPublished = published.Count,
+        averageGpa = published.Count == 0 ? 0 : Math.Round(published.Average(x => x.Gpa), 2),
+        latest = published.FirstOrDefault()
+    });
+}).RequireRoles("Student", "Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, ExamDbContext dbContext, int page = 1, int pageSize = 20) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -120,6 +141,23 @@ static async Task SeedExamDataAsync(WebApplication app)
     ]);
 
     await dbContext.SaveChangesAsync();
+}
+
+static bool CanAccessStudentRecord(HttpContext httpContext, Guid requestedUserId, params string[] elevatedRoles)
+{
+    var role = httpContext.User.FindFirst("role")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+        ?? string.Empty;
+
+    if (elevatedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var currentUserId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.User.FindFirst("sub")?.Value;
+
+    return Guid.TryParse(currentUserId, out var parsedUserId) && parsedUserId == requestedUserId;
 }
 
 public sealed record PublishResultRequest(string TenantId, Guid StudentId, string SemesterCode, decimal Gpa, bool Published);

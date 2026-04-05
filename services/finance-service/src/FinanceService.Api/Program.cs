@@ -186,6 +186,34 @@ app.MapGet("/api/v1/payments/summary", async (HttpContext httpContext, FinanceDb
     });
 }).RequirePermissions("finance.manage");
 
+app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, HttpContext httpContext, FinanceDbContext dbContext) =>
+{
+    if (!CanAccessStudentFinance(httpContext, studentId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var payments = await dbContext.Payments
+        .Where(x => x.TenantId == tenantId && x.StudentId == studentId)
+        .OrderByDescending(x => x.PaidAtUtc)
+        .ToListAsync();
+    var sessions = await dbContext.PaymentSessions
+        .Where(x => x.TenantId == tenantId && x.StudentId == studentId)
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .ToListAsync();
+
+    var paidPayments = payments.Where(x => string.Equals(x.Status, "Paid", StringComparison.OrdinalIgnoreCase)).ToList();
+    return Results.Ok(new
+    {
+        totalPaid = paidPayments.Sum(x => x.Amount),
+        totalTransactions = paidPayments.Count,
+        pendingSessions = sessions.Count(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+        latestPayment = payments.FirstOrDefault(),
+        latestSession = sessions.FirstOrDefault()
+    });
+}).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
+
 app.MapGet("/api/v1/reconciliation/runs", async (HttpContext httpContext, FinanceDbContext dbContext) =>
     await dbContext.ReconciliationRuns.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.ExecutedAtUtc).Take(20).ToListAsync())
     .RequirePermissions("finance.manage");
@@ -256,6 +284,23 @@ static async Task SeedFinanceDataAsync(WebApplication app)
     });
 
     await dbContext.SaveChangesAsync();
+}
+
+static bool CanAccessStudentFinance(HttpContext httpContext, Guid requestedUserId)
+{
+    var role = httpContext.User.FindFirst("role")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+        ?? string.Empty;
+
+    if (new[] { "Principal", "Admin", "FinanceStaff" }.Contains(role, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var currentUserId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.User.FindFirst("sub")?.Value;
+
+    return Guid.TryParse(currentUserId, out var parsedUserId) && parsedUserId == requestedUserId;
 }
 
 public sealed record RecordPaymentRequest(string TenantId, Guid StudentId, decimal Amount, string Currency, string Provider, string Status, string InvoiceNumber);

@@ -40,6 +40,26 @@ type InquirySummary = {
   newItems: number;
   inReview: number;
   latest?: InquiryItem | null;
+  applications?: {
+    total: number;
+    submitted: number;
+    underReview: number;
+    qualified: number;
+    offered: number;
+  };
+};
+
+type ApplicationItem = {
+  id: string;
+  applicationNumber: string;
+  applicantName: string;
+  email: string;
+  campusName: string;
+  programName: string;
+  stage: string;
+  status: string;
+  assignedTo: string;
+  createdAtUtc: string;
 };
 
 async function loadOptionalJson(url: string, headers: HeadersInit, enabled: boolean) {
@@ -116,6 +136,33 @@ const demoInquiries: InquiryItem[] = [
   }
 ];
 
+const demoApplications: ApplicationItem[] = [
+  {
+    id: "application-1",
+    applicationNumber: "APP-20260405-1001",
+    applicantName: "Riya Menon",
+    email: "riya.menon@example.com",
+    campusName: "North City Campus",
+    programName: "B.Tech Computer Science and Engineering",
+    stage: "Application Review",
+    status: "Submitted",
+    assignedTo: "Admissions Desk",
+    createdAtUtc: "2026-04-05T09:30:00Z"
+  },
+  {
+    id: "application-2",
+    applicationNumber: "APP-20260405-1002",
+    applicantName: "Aditya Rao",
+    email: "aditya.rao@example.com",
+    campusName: "Health Sciences Campus",
+    programName: "B.Sc Allied Health Sciences",
+    stage: "Interview Scheduling",
+    status: "Qualified",
+    assignedTo: "Admissions Desk",
+    createdAtUtc: "2026-04-04T10:30:00Z"
+  }
+];
+
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
@@ -123,14 +170,39 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+function summarizeApplications(items: ApplicationItem[]) {
+  return {
+    total: items.length,
+    submitted: items.filter((item) => item.status === "Submitted").length,
+    underReview: items.filter((item) => item.status === "Under Review").length,
+    qualified: items.filter((item) => item.status === "Qualified").length,
+    offered: items.filter((item) => item.status === "Offered").length
+  };
+}
+
+function summarizeAdmissions(inquiries: InquiryItem[], applications: ApplicationItem[]): InquirySummary {
+  const latest =
+    [...inquiries].sort((left, right) => new Date(right.createdAtUtc).getTime() - new Date(left.createdAtUtc).getTime())[0] ?? null;
+
+  return {
+    total: inquiries.length,
+    newItems: inquiries.filter((item) => item.status === "New").length,
+    inReview: inquiries.filter((item) => item.status === "In Review").length,
+    latest,
+    applications: summarizeApplications(applications)
+  };
+}
+
 export default function OperationsPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
+  const [applications, setApplications] = useState<ApplicationItem[]>([]);
   const [inquirySummary, setInquirySummary] = useState<InquirySummary>({ total: 0, newItems: 0, inReview: 0, latest: null });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
+  const [updatingInquiryId, setUpdatingInquiryId] = useState<string | null>(null);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -143,7 +215,8 @@ export default function OperationsPage() {
             setNotifications(demoNotifications);
             setAuditLogs(demoAuditLogs);
             setInquiries(demoInquiries);
-            setInquirySummary({ total: 2, newItems: 1, inReview: 1, latest: demoInquiries[0] });
+            setApplications(demoApplications);
+            setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications));
             setError(null);
           }
           return;
@@ -160,9 +233,10 @@ export default function OperationsPage() {
         const canViewAttendance = session.permissions.includes("attendance.view");
         const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, admissionsPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+        const [notificationsPayload, admissionsPayload, applicationsPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/inquiries?pageSize=8`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/applications?pageSize=8`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/summary`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac),
@@ -185,8 +259,16 @@ export default function OperationsPage() {
 
         if (!cancelled) {
           setNotifications((notificationsPayload?.items ?? []) as NotificationItem[]);
-          setInquiries((admissionsPayload?.items ?? []) as InquiryItem[]);
-          setInquirySummary((admissionsSummaryPayload ?? { total: 0, newItems: 0, inReview: 0, latest: null }) as InquirySummary);
+          const nextInquiries = (admissionsPayload?.items ?? []) as InquiryItem[];
+          const nextApplications = (applicationsPayload?.items ?? []) as ApplicationItem[];
+          const remoteSummary = (admissionsSummaryPayload ?? { total: 0, newItems: 0, inReview: 0, latest: null }) as InquirySummary;
+          setInquiries(nextInquiries);
+          setApplications(nextApplications);
+          setInquirySummary({
+            ...remoteSummary,
+            latest: remoteSummary.latest ?? summarizeAdmissions(nextInquiries, nextApplications).latest,
+            applications: remoteSummary.applications ?? summarizeApplications(nextApplications)
+          });
           setAuditLogs(mergedAuditLogs);
           setError(null);
         }
@@ -213,6 +295,150 @@ export default function OperationsPage() {
     setSigningOut(true);
     await logoutAdmin().catch(() => null);
     window.location.href = "/auth";
+  }
+
+  async function updateInquiryStatus(id: string, status: string) {
+    if (demoMode) {
+      const nextInquiries = inquiries.map((item) =>
+        item.id === id ? { ...item, status, assignedTo: status === "In Review" ? "Admissions Desk" : item.assignedTo } : item
+      );
+      setInquiries(nextInquiries);
+      setInquirySummary(summarizeAdmissions(nextInquiries, applications));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/inquiries/${id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          assignedTo: status === "In Review" ? session.user.email : undefined
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update the inquiry status.");
+      }
+
+      const payload = (await response.json()) as InquiryItem;
+      const nextInquiries = inquiries.map((item) => (item.id === id ? payload : item));
+      setInquiries(nextInquiries);
+      setInquirySummary(summarizeAdmissions(nextInquiries, applications));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update the inquiry status.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function convertInquiryToApplication(item: InquiryItem) {
+    if (demoMode) {
+      const nextApplication: ApplicationItem = {
+        id: `application-${Date.now()}`,
+        applicationNumber: `APP-20260405-${Math.floor(Math.random() * 9000) + 1000}`,
+        applicantName: item.fullName,
+        email: item.email,
+        campusName: item.preferredCampus,
+        programName: item.interestedProgram,
+        stage: "Application Review",
+        status: "Submitted",
+        assignedTo: "Admissions Desk",
+        createdAtUtc: new Date().toISOString()
+      };
+      const nextApplications = [nextApplication, ...applications];
+      const nextInquiries = inquiries.map((entry) =>
+        entry.id === item.id ? { ...entry, status: "Converted", assignedTo: "Admissions Desk" } : entry
+      );
+      setApplications(nextApplications);
+      setInquiries(nextInquiries);
+      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/applications`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          inquiryId: item.id,
+          applicantName: item.fullName,
+          email: item.email,
+          campusName: item.preferredCampus,
+          programName: item.interestedProgram,
+          assignedTo: session.user.email
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create an application from the inquiry.");
+      }
+
+      const payload = (await response.json()) as ApplicationItem;
+      const nextApplications = [payload, ...applications];
+      const nextInquiries = inquiries.map((entry) => (entry.id === item.id ? { ...entry, status: "Converted", assignedTo: session.user.email } : entry));
+      setApplications(nextApplications);
+      setInquiries(nextInquiries);
+      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications));
+    } catch (convertError) {
+      setError(convertError instanceof Error ? convertError.message : "Unable to create an application from the inquiry.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function updateApplicationStatus(id: string, status: string, stage: string) {
+    if (demoMode) {
+      const nextApplications = applications.map((item) =>
+        item.id === id ? { ...item, status, stage, assignedTo: item.assignedTo || "Admissions Desk" } : item
+      );
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/applications/${id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          stage,
+          assignedTo: session.user.email
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update the application status.");
+      }
+
+      const payload = (await response.json()) as ApplicationItem;
+      const nextApplications = applications.map((item) => (item.id === id ? payload : item));
+      setApplications(nextApplications);
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update the application status.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
   }
 
   return (
@@ -270,6 +496,25 @@ export default function OperationsPage() {
           </article>
         </div>
 
+        <div className="mt-6 grid gap-5 md:grid-cols-4">
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Applications</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.applications?.total ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Submitted</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.applications?.submitted ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Qualified</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.applications?.qualified ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Offered</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.applications?.offered ?? 0}</p>
+          </article>
+        </div>
+
         <div className="mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <div className="flex items-center justify-between gap-3">
@@ -296,6 +541,32 @@ export default function OperationsPage() {
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
                     {item.email} | {item.assignedTo || "Unassigned"} | {formatTimestamp(item.createdAtUtc)}
                   </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateInquiryStatus(item.id, "In Review")}
+                      disabled={updatingInquiryId === item.id || item.status === "In Review"}
+                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                    >
+                      {updatingInquiryId === item.id ? "Updating..." : "Mark In Review"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => convertInquiryToApplication(item)}
+                      disabled={updatingInquiryId === item.id || item.status === "Converted"}
+                      className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-fuchsia-100 disabled:opacity-50"
+                    >
+                      {updatingInquiryId === item.id ? "Working..." : "Create Application"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateInquiryStatus(item.id, "Contacted")}
+                      disabled={updatingInquiryId === item.id || item.status === "Contacted"}
+                      className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                    >
+                      {updatingInquiryId === item.id ? "Updating..." : "Mark Contacted"}
+                    </button>
+                  </div>
                 </article>
               ))}
 
@@ -304,6 +575,64 @@ export default function OperationsPage() {
           </section>
 
           <div className="grid gap-5">
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-300">Applications</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">From inquiry to application stage</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${applications.length} items`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {applications.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.applicantName}</p>
+                      <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-fuchsia-100">
+                        {item.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.programName}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.campusName} | {item.stage}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
+                      {item.applicationNumber} | {item.assignedTo || "Unassigned"} | {formatTimestamp(item.createdAtUtc)}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateApplicationStatus(item.id, "Under Review", "Document Verification")}
+                        disabled={updatingInquiryId === item.id || item.status === "Under Review"}
+                        className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Mark Under Review"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateApplicationStatus(item.id, "Qualified", "Interview Scheduling")}
+                        disabled={updatingInquiryId === item.id || item.status === "Qualified"}
+                        className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Mark Qualified"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateApplicationStatus(item.id, "Offered", "Offer Released")}
+                        disabled={updatingInquiryId === item.id || item.status === "Offered"}
+                        className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Mark Offered"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!loading && applications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No admissions applications have been created yet.</div> : null}
+              </div>
+            </section>
+
             <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
               <div className="flex items-center justify-between gap-3">
                 <div>

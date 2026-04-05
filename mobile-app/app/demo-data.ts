@@ -17,10 +17,19 @@ export type MobileDashboardState = {
   results: string;
   announcements: string;
   schedule: string;
+  finance: string;
   principalBlogTitle: string;
   principalBlogBody: string;
   nextClassTitle: string;
   nextClassMeta: string;
+  paymentTitle: string;
+  paymentMeta: string;
+  notifications: Array<{
+    id: string;
+    title: string;
+    message: string;
+    createdAtUtc: string;
+  }>;
 };
 
 export const mobileDemoSession: MobileDemoSession = {
@@ -42,10 +51,33 @@ export const mobileDemoDashboardState: MobileDashboardState = {
   results: "8.8 GPA",
   announcements: "3 New",
   schedule: "11:30 AM",
+  finance: "INR 57K",
   principalBlogTitle: "Mid-semester review schedule released",
   principalBlogBody: "The demo environment is showing seeded academic notices instead of the live campus communication feed.",
   nextClassTitle: "Distributed Systems",
-  nextClassMeta: "B-204 - 11:30 AM - CSE401"
+  nextClassMeta: "B-204 - 11:30 AM - CSE401",
+  paymentTitle: "Pending INV-2026-003",
+  paymentMeta: "PayPal fee collection session is waiting for checkout completion.",
+  notifications: [
+    {
+      id: "mobile-note-1",
+      title: "Semester exams begin on April 12",
+      message: "Review the updated exam timetable and hall policies before reporting.",
+      createdAtUtc: "2026-04-04T09:30:00Z"
+    },
+    {
+      id: "mobile-note-2",
+      title: "Library hours extended",
+      message: "Late-evening access is open through the assessment week.",
+      createdAtUtc: "2026-04-03T17:00:00Z"
+    },
+    {
+      id: "mobile-note-3",
+      title: "Admissions counseling week is live",
+      message: "Student ambassadors are supporting campus tours across all three locations.",
+      createdAtUtc: "2026-04-02T10:15:00Z"
+    }
+  ]
 };
 
 const mobileReplies: Record<string, string> = {

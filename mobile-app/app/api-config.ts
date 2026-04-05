@@ -4,6 +4,7 @@ const defaults = {
   EXPO_PUBLIC_ATTENDANCE_API_URL: "http://localhost:7003",
   EXPO_PUBLIC_COMMUNICATION_API_URL: "http://localhost:7004",
   EXPO_PUBLIC_EXAM_API_URL: "http://localhost:7005",
+  EXPO_PUBLIC_FINANCE_API_URL: "http://localhost:7006",
   EXPO_PUBLIC_AI_ASSISTANT_URL: "http://localhost:7007/api/chat"
 } as const;
 
@@ -18,5 +19,6 @@ export const apiConfig = {
   attendance: () => getEnv("EXPO_PUBLIC_ATTENDANCE_API_URL"),
   communication: () => getEnv("EXPO_PUBLIC_COMMUNICATION_API_URL"),
   exam: () => getEnv("EXPO_PUBLIC_EXAM_API_URL"),
+  finance: () => getEnv("EXPO_PUBLIC_FINANCE_API_URL"),
   assistant: () => getEnv("EXPO_PUBLIC_AI_ASSISTANT_URL")
 };
