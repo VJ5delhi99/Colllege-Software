@@ -57,6 +57,17 @@ type InquirySummary = {
     pending: number;
     verified: number;
   };
+  communications?: {
+    total: number;
+    email: number;
+    sms: number;
+    sent: number;
+  };
+  reminders?: {
+    total: number;
+    open: number;
+    completed: number;
+  };
 };
 
 type ApplicationItem = {
@@ -93,6 +104,28 @@ type PendingDocumentItem = {
   status: string;
   notes: string;
   requestedAtUtc: string;
+};
+
+type CommunicationItem = {
+  id: string;
+  applicationId: string;
+  applicantName: string;
+  channel: string;
+  templateName: string;
+  subject: string;
+  body: string;
+  status: string;
+  createdAtUtc: string;
+};
+
+type ReminderItem = {
+  id: string;
+  applicationId: string;
+  applicantName: string;
+  reminderType: string;
+  dueAtUtc: string;
+  status: string;
+  notes: string;
 };
 
 async function loadOptionalJson(url: string, headers: HeadersInit, enabled: boolean) {
@@ -232,6 +265,41 @@ const demoDocuments: PendingDocumentItem[] = [
   }
 ];
 
+const demoCommunications: CommunicationItem[] = [
+  {
+    id: "communication-1",
+    applicationId: "application-1",
+    applicantName: "Riya Menon",
+    channel: "Email",
+    templateName: "Application Follow-Up",
+    subject: "Next steps for your University360 application",
+    body: "Please review the counseling schedule and keep your academic transcript ready for verification.",
+    status: "Sent",
+    createdAtUtc: "2026-04-05T12:00:00Z"
+  }
+];
+
+const demoReminders: ReminderItem[] = [
+  {
+    id: "reminder-1",
+    applicationId: "application-1",
+    applicantName: "Riya Menon",
+    reminderType: "Document Follow-Up",
+    dueAtUtc: "2026-04-06T09:00:00Z",
+    status: "Open",
+    notes: "Call the applicant if transcript upload is still pending."
+  },
+  {
+    id: "reminder-2",
+    applicationId: "application-2",
+    applicantName: "Aditya Rao",
+    reminderType: "Offer Review",
+    dueAtUtc: "2026-04-06T14:00:00Z",
+    status: "Completed",
+    notes: "Offer review completed by admissions desk."
+  }
+];
+
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
@@ -253,7 +321,9 @@ function summarizeAdmissions(
   inquiries: InquiryItem[],
   applications: ApplicationItem[],
   counselingSessions: CounselingSessionItem[] = [],
-  documents: PendingDocumentItem[] = []
+  documents: PendingDocumentItem[] = [],
+  communications: CommunicationItem[] = [],
+  reminders: ReminderItem[] = []
 ): InquirySummary {
   const latest =
     [...inquiries].sort((left, right) => new Date(right.createdAtUtc).getTime() - new Date(left.createdAtUtc).getTime())[0] ?? null;
@@ -273,6 +343,17 @@ function summarizeAdmissions(
       total: documents.length,
       pending: documents.filter((item) => item.status === "Requested" || item.status === "Under Review").length,
       verified: documents.filter((item) => item.status === "Verified").length
+    },
+    communications: {
+      total: communications.length,
+      email: communications.filter((item) => item.channel === "Email").length,
+      sms: communications.filter((item) => item.channel === "SMS").length,
+      sent: communications.filter((item) => item.status === "Sent").length
+    },
+    reminders: {
+      total: reminders.length,
+      open: reminders.filter((item) => item.status === "Open").length,
+      completed: reminders.filter((item) => item.status === "Completed").length
     }
   };
 }
@@ -284,6 +365,8 @@ export default function OperationsPage() {
   const [applications, setApplications] = useState<ApplicationItem[]>([]);
   const [counselingSessions, setCounselingSessions] = useState<CounselingSessionItem[]>([]);
   const [documents, setDocuments] = useState<PendingDocumentItem[]>([]);
+  const [communications, setCommunications] = useState<CommunicationItem[]>([]);
+  const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [inquirySummary, setInquirySummary] = useState<InquirySummary>({ total: 0, newItems: 0, inReview: 0, latest: null });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -304,7 +387,9 @@ export default function OperationsPage() {
             setApplications(demoApplications);
             setCounselingSessions(demoCounselingSessions);
             setDocuments(demoDocuments);
-            setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications, demoCounselingSessions, demoDocuments));
+            setCommunications(demoCommunications);
+            setReminders(demoReminders);
+            setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications, demoCounselingSessions, demoDocuments, demoCommunications, demoReminders));
             setError(null);
           }
           return;
@@ -321,12 +406,14 @@ export default function OperationsPage() {
         const canViewAttendance = session.permissions.includes("attendance.view");
         const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, communicationsPayload, remindersPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/inquiries?pageSize=8`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/applications?pageSize=8`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/counseling-sessions?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/documents/pending?pageSize=6`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=6`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/reminders?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/summary`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac),
@@ -353,19 +440,25 @@ export default function OperationsPage() {
           const nextApplications = (applicationsPayload?.items ?? []) as ApplicationItem[];
           const nextCounselingSessions = (counselingPayload?.items ?? []) as CounselingSessionItem[];
           const nextDocuments = (documentsPayload?.items ?? []) as PendingDocumentItem[];
-          const computedSummary = summarizeAdmissions(nextInquiries, nextApplications, nextCounselingSessions, nextDocuments);
+          const nextCommunications = (communicationsPayload?.items ?? []) as CommunicationItem[];
+          const nextReminders = (remindersPayload?.items ?? []) as ReminderItem[];
+          const computedSummary = summarizeAdmissions(nextInquiries, nextApplications, nextCounselingSessions, nextDocuments, nextCommunications, nextReminders);
           const remoteSummary = (admissionsSummaryPayload ?? computedSummary) as InquirySummary;
           setInquiries(nextInquiries);
           setApplications(nextApplications);
           setCounselingSessions(nextCounselingSessions);
           setDocuments(nextDocuments);
+          setCommunications(nextCommunications);
+          setReminders(nextReminders);
           setInquirySummary({
             ...computedSummary,
             ...remoteSummary,
             latest: remoteSummary.latest ?? computedSummary.latest,
             applications: remoteSummary.applications ?? computedSummary.applications,
             counseling: remoteSummary.counseling ?? computedSummary.counseling,
-            documents: remoteSummary.documents ?? computedSummary.documents
+            documents: remoteSummary.documents ?? computedSummary.documents,
+            communications: remoteSummary.communications ?? computedSummary.communications,
+            reminders: remoteSummary.reminders ?? computedSummary.reminders
           });
           setAuditLogs(mergedAuditLogs);
           setError(null);
@@ -401,7 +494,7 @@ export default function OperationsPage() {
         item.id === id ? { ...item, status, assignedTo: status === "In Review" ? "Admissions Desk" : item.assignedTo } : item
       );
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, applications, counselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(nextInquiries, applications, counselingSessions, documents, communications, reminders));
       return;
     }
 
@@ -428,7 +521,7 @@ export default function OperationsPage() {
       const payload = (await response.json()) as InquiryItem;
       const nextInquiries = inquiries.map((item) => (item.id === id ? payload : item));
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, applications, counselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(nextInquiries, applications, counselingSessions, documents, communications, reminders));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update the inquiry status.");
     } finally {
@@ -456,7 +549,7 @@ export default function OperationsPage() {
       );
       setApplications(nextApplications);
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications, counselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications, counselingSessions, documents, communications, reminders));
       return;
     }
 
@@ -489,7 +582,7 @@ export default function OperationsPage() {
       const nextInquiries = inquiries.map((entry) => (entry.id === item.id ? { ...entry, status: "Converted", assignedTo: session.user.email } : entry));
       setApplications(nextApplications);
       setInquiries(nextInquiries);
-      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications, counselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(nextInquiries, nextApplications, counselingSessions, documents, communications, reminders));
     } catch (convertError) {
       setError(convertError instanceof Error ? convertError.message : "Unable to create an application from the inquiry.");
     } finally {
@@ -503,7 +596,7 @@ export default function OperationsPage() {
         item.id === id ? { ...item, status, stage, assignedTo: item.assignedTo || "Admissions Desk" } : item
       );
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, documents, communications, reminders));
       return;
     }
 
@@ -531,7 +624,7 @@ export default function OperationsPage() {
       const payload = (await response.json()) as ApplicationItem;
       const nextApplications = applications.map((item) => (item.id === id ? payload : item));
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, documents, communications, reminders));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update the application status.");
     } finally {
@@ -559,7 +652,7 @@ export default function OperationsPage() {
       );
       setCounselingSessions(nextCounselingSessions);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents, communications, reminders));
       return;
     }
 
@@ -593,7 +686,7 @@ export default function OperationsPage() {
       );
       setCounselingSessions(nextCounselingSessions);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents, communications, reminders));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to schedule counseling.");
     } finally {
@@ -611,7 +704,7 @@ export default function OperationsPage() {
           : applications;
       setCounselingSessions(nextCounselingSessions);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents, communications, reminders));
       return;
     }
 
@@ -640,7 +733,7 @@ export default function OperationsPage() {
           : applications;
       setCounselingSessions(nextCounselingSessions);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, nextCounselingSessions, documents, communications, reminders));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update counseling.");
     } finally {
@@ -663,7 +756,7 @@ export default function OperationsPage() {
       const nextApplications = applications.map((application) => (application.id === item.id ? { ...application, stage: "Document Verification" } : application));
       setDocuments(nextDocuments);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments, communications, reminders));
       return;
     }
 
@@ -692,7 +785,7 @@ export default function OperationsPage() {
       const nextApplications = applications.map((application) => (application.id === item.id ? { ...application, stage: "Document Verification" } : application));
       setDocuments(nextDocuments);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments, communications, reminders));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to request a document.");
     } finally {
@@ -704,7 +797,7 @@ export default function OperationsPage() {
     if (demoMode) {
       const nextDocuments = documents.map((item) => (item.id === id ? { ...item, status } : item));
       setDocuments(nextDocuments);
-      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments));
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments, communications, reminders));
       return;
     }
 
@@ -735,9 +828,98 @@ export default function OperationsPage() {
           : applications;
       setDocuments(nextDocuments);
       setApplications(nextApplications);
-      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments));
+      setInquirySummary(summarizeAdmissions(inquiries, nextApplications, counselingSessions, nextDocuments, communications, reminders));
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update document verification.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function sendApplicantCommunication(item: ApplicationItem) {
+    if (demoMode) {
+      const nextCommunication: CommunicationItem = {
+        id: `communication-${Date.now()}`,
+        applicationId: item.id,
+        applicantName: item.applicantName,
+        channel: "Email",
+        templateName: "Manual Follow-Up",
+        subject: `Update for ${item.programName}`,
+        body: "Your application is progressing. Please review the latest admissions checklist and keep documents ready.",
+        status: "Sent",
+        createdAtUtc: new Date().toISOString()
+      };
+      const nextCommunications = [nextCommunication, ...communications];
+      setCommunications(nextCommunications);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, documents, nextCommunications, reminders));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/communications`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          applicationId: item.id,
+          channel: "Email",
+          templateName: "Manual Follow-Up",
+          subject: `Update for ${item.programName}`,
+          body: "Your application is progressing. Please review the latest admissions checklist and keep documents ready."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to send applicant communication.");
+      }
+
+      const payload = (await response.json()) as CommunicationItem;
+      const nextCommunications = [payload, ...communications];
+      setCommunications(nextCommunications);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, documents, nextCommunications, reminders));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to send applicant communication.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function updateReminderStatus(id: string, status: string) {
+    if (demoMode) {
+      const nextReminders = reminders.map((item) => (item.id === id ? { ...item, status } : item));
+      setReminders(nextReminders);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, documents, communications, nextReminders));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/reminders/${id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update reminder status.");
+      }
+
+      const payload = (await response.json()) as ReminderItem;
+      const nextReminders = reminders.map((item) => (item.id === id ? payload : item));
+      setReminders(nextReminders);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, documents, communications, nextReminders));
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update reminder status.");
     } finally {
       setUpdatingInquiryId(null);
     }
@@ -836,6 +1018,25 @@ export default function OperationsPage() {
           </article>
         </div>
 
+        <div className="mt-6 grid gap-5 md:grid-cols-4">
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Communications</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.communications?.total ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Emails</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.communications?.email ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Reminders</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.reminders?.total ?? 0}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Open reminders</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.reminders?.open ?? 0}</p>
+          </article>
+        </div>
+
         <div className="mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <div className="flex items-center justify-between gap-3">
@@ -922,6 +1123,14 @@ export default function OperationsPage() {
                       {item.applicationNumber} | {item.assignedTo || "Unassigned"} | {formatTimestamp(item.createdAtUtc)}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => sendApplicantCommunication(item)}
+                        disabled={updatingInquiryId === item.id}
+                        className="rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-sky-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Working..." : "Send Follow-Up"}
+                      </button>
                       <button
                         type="button"
                         onClick={() => scheduleCounseling(item)}
@@ -1057,6 +1266,76 @@ export default function OperationsPage() {
                 ))}
 
                 {!loading && documents.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No applicant documents are pending yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Communications</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Applicant follow-ups sent by ops</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${communications.length} items`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {communications.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.applicantName}</p>
+                      <span className="rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-sky-100">
+                        {item.channel}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.subject}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.templateName} | {item.status}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.createdAtUtc)}</p>
+                  </article>
+                ))}
+
+                {!loading && communications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No applicant communications have been sent yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-rose-200">Reminders</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Follow-up queue that still needs action</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${reminders.length} items`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {reminders.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.applicantName}</p>
+                      <span className="rounded-full border border-rose-300/20 bg-rose-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-rose-100">
+                        {item.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.reminderType}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.notes || "No notes added."}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.dueAtUtc)}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateReminderStatus(item.id, "Completed")}
+                        disabled={updatingInquiryId === item.id || item.status === "Completed"}
+                        className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Complete"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!loading && reminders.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No follow-up reminders are open yet.</div> : null}
               </div>
             </section>
 

@@ -44,7 +44,9 @@ public sealed class WorkflowCoverageTests
             [inquiry],
             [new AdmissionApplication { Status = "Submitted" }, new AdmissionApplication { Status = "Qualified" }],
             [new CounselingSession { Status = "Scheduled" }, new CounselingSession { Status = "Completed" }],
-            [new ApplicationDocument { Status = "Requested" }, new ApplicationDocument { Status = "Verified" }]);
+            [new ApplicationDocument { Status = "Requested" }, new ApplicationDocument { Status = "Verified" }],
+            [new AdmissionCommunication { Channel = "Email", Status = "Sent" }],
+            [new AdmissionReminder { Status = "Open" }, new AdmissionReminder { Status = "Completed" }]);
 
         summary.Total.Should().Be(1);
         summary.NewItems.Should().Be(1);
@@ -54,5 +56,8 @@ public sealed class WorkflowCoverageTests
         summary.Counseling.Completed.Should().Be(1);
         summary.Documents.Pending.Should().Be(1);
         summary.Documents.Verified.Should().Be(1);
+        summary.Communications.Email.Should().Be(1);
+        summary.Reminders.Open.Should().Be(1);
+        summary.Reminders.Completed.Should().Be(1);
     }
 }

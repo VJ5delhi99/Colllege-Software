@@ -2,7 +2,7 @@
 
 ## Summary
 
-The repository already had strong service coverage, but the shipped experience still felt like a scaffold in several important areas. The main issues were not missing technologies so much as missing product continuity between public discovery, admissions capture, and admin follow-through.
+The repository already had strong service coverage, but the shipped experience still felt like a scaffold in several important areas. The biggest issues were continuity problems between public discovery, admissions capture, follow-up operations, and the extracted university structure described by the architecture.
 
 ## Issues Found
 
@@ -10,21 +10,25 @@ The repository already had strong service coverage, but the shipped experience s
 - The homepage mixed marketing and internal dashboard concepts, which weakened trust and made the IA feel unfinished.
 - The college-management blueprint described university, college, and campus hierarchy, but the live product did not expose that structure clearly.
 - There was no admissions inquiry workflow bridging guest visitors to operations users.
-- Admin pages emphasized metrics and audit records but missed the inbound funnel created by the public website.
+- Admin pages emphasized metrics and audit records but originally missed the inbound funnel created by the public website.
 - Notifications were role-aware in the API, but parts of the UI only loaded them for announcement publishers.
 - Teacher and student surfaces were thin and did not clearly connect next actions to the services already available in the repo.
+- Catalog ownership was temporarily duplicated across services, which created an architectural drift risk.
+- Admissions could convert inquiries to applications, but follow-up communications and reminder handling were not yet visible as an end-to-end operating loop.
 
 ## Implemented In This Pass
 
-- Added service-backed public catalog data in `academic-service` for colleges, campuses, featured programs, and homepage summary stats.
-- Added public homepage content and admissions inquiry APIs in `communication-service`.
-- Added operations-facing admissions inquiry retrieval and status tracking endpoints.
-- Updated the architecture notes to reflect the reviewed gaps and the temporary solution boundary.
-- Rebuilt the web UI to consume live public content and expose the admissions pipeline in admin-facing pages.
+- Extracted organization and catalog ownership into `organization-service` and repointed the public/admin experiences to that boundary.
+- Removed the remaining transitional public catalog duplication from `academic-service` so ownership is cleaner.
+- Added public homepage content and admissions inquiry APIs in `communication-service`, then deepened that workflow with applications, counseling, document verification, applicant communications, and reminder queues.
+- Rebuilt the operations web UI so inquiry handling, applications, documents, communications, and reminders are visible together in one admissions operating surface.
+- Expanded mobile role coverage so admin and teacher workspaces reflect more of the live platform state instead of only demo-style overview cards.
+- Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
 
-- Extract the temporary organization catalog from `academic-service` into a dedicated `organization-service`.
 - Replace one-file minimal-API service implementations with cleaner internal boundaries in the highest-change services.
-- Expand the mobile app so the refreshed public and operations patterns have a matching native surface.
-- Add deeper automated coverage for the new public discovery and admissions flows.
+- Add richer admissions automation such as templated outreach, escalation policies, SLA tracking, and counselor workload orchestration.
+- Expand the mobile app so the refreshed public and operations patterns have deeper workflow parity, not just executive visibility.
+- Add deeper automated coverage for the public discovery, admissions, and cross-service role workflows.
+- Finish production rollout concerns such as external SSO federation, live payment credentials, and managed secret providers.

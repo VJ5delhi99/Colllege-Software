@@ -222,8 +222,10 @@ app.MapGet("/api/v1/admissions/summary", async (HttpContext httpContext, Communi
     var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == tenantId).ToListAsync();
     var counselingSessions = await dbContext.CounselingSessions.Where(x => x.TenantId == tenantId).ToListAsync();
     var documents = await dbContext.ApplicationDocuments.Where(x => x.TenantId == tenantId).ToListAsync();
+    var communications = await dbContext.AdmissionCommunications.Where(x => x.TenantId == tenantId).ToListAsync();
+    var reminders = await dbContext.AdmissionReminders.Where(x => x.TenantId == tenantId).ToListAsync();
 
-    return Results.Ok(AdmissionsWorkflowMetrics.Create(inquiries, applications, counselingSessions, documents));
+    return Results.Ok(AdmissionsWorkflowMetrics.Create(inquiries, applications, counselingSessions, documents, communications, reminders));
 }).RequirePermissions("announcements.create");
 
 app.MapPost("/api/v1/admissions/inquiries/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateInquiryStatusRequest request, CommunicationDbContext dbContext) =>
@@ -372,6 +374,19 @@ app.MapPost("/api/v1/admissions/counseling-sessions", async (HttpContext httpCon
     application.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
     dbContext.CounselingSessions.Add(session);
+    dbContext.AdmissionReminders.Add(new AdmissionReminder
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        ApplicationId = application.Id,
+        ApplicantName = application.ApplicantName,
+        ReminderType = "Counseling Follow-Up",
+        DueAtUtc = session.ScheduledAtUtc.AddHours(-12),
+        Status = "Open",
+        Notes = "Reach out before the scheduled counseling session.",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UpdatedAtUtc = DateTimeOffset.UtcNow
+    });
     dbContext.Notifications.Add(new Notification
     {
         Id = Guid.NewGuid(),
@@ -476,6 +491,19 @@ app.MapPost("/api/v1/admissions/applications/{id:guid}/documents", async (Guid i
     application.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
     dbContext.ApplicationDocuments.Add(document);
+    dbContext.AdmissionReminders.Add(new AdmissionReminder
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        ApplicationId = application.Id,
+        ApplicantName = application.ApplicantName,
+        ReminderType = $"{document.DocumentType} follow-up",
+        DueAtUtc = DateTimeOffset.UtcNow.AddDays(2),
+        Status = "Open",
+        Notes = "Follow up with the applicant if the requested document is not submitted.",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UpdatedAtUtc = DateTimeOffset.UtcNow
+    });
     dbContext.AuditLogs.Add(new AuditLogEntry
     {
         Id = Guid.NewGuid(),
@@ -489,6 +517,157 @@ app.MapPost("/api/v1/admissions/applications/{id:guid}/documents", async (Guid i
 
     await dbContext.SaveChangesAsync();
     return Results.Created($"/api/v1/admissions/documents/{document.Id}", document);
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/communications", async (HttpContext httpContext, [FromBody] CreateAdmissionCommunicationRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var application = await dbContext.AdmissionApplications.FirstOrDefaultAsync(x => x.Id == request.ApplicationId && x.TenantId == tenantId);
+    if (application is null)
+    {
+        return Results.NotFound(new { message = "Application not found." });
+    }
+
+    var communication = new AdmissionCommunication
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        ApplicationId = application.Id,
+        ApplicantName = application.ApplicantName,
+        Channel = string.IsNullOrWhiteSpace(request.Channel) ? "Email" : request.Channel.Trim(),
+        TemplateName = request.TemplateName?.Trim() ?? "Manual Follow-Up",
+        Subject = request.Subject.Trim(),
+        Body = request.Body.Trim(),
+        Status = "Sent",
+        ScheduledForUtc = request.ScheduledForUtc,
+        SentAtUtc = DateTimeOffset.UtcNow,
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        CreatedBy = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown"
+    };
+
+    dbContext.AdmissionCommunications.Add(communication);
+    dbContext.Notifications.Add(new Notification
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Title = $"Applicant follow-up sent to {application.ApplicantName}",
+        Message = $"{communication.Channel} | {communication.Subject}",
+        Audience = "Admin",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        Source = "admissions"
+    });
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.communication.sent",
+        EntityId = communication.Id.ToString(),
+        Actor = communication.CreatedBy,
+        Details = $"{communication.Channel} follow-up sent to {application.ApplicantName}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/admissions/communications/{communication.Id}", communication);
+}).RequirePermissions("announcements.create");
+
+app.MapGet("/api/v1/admissions/communications", async (HttpContext httpContext, CommunicationDbContext dbContext, string? channel, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.AdmissionCommunications.Where(x => x.TenantId == tenantId);
+    if (!string.IsNullOrWhiteSpace(channel))
+    {
+        query = query.Where(x => x.Channel == channel);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderByDescending(x => x.CreatedAtUtc).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/reminders", async (HttpContext httpContext, [FromBody] CreateAdmissionReminderRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var application = await dbContext.AdmissionApplications.FirstOrDefaultAsync(x => x.Id == request.ApplicationId && x.TenantId == tenantId);
+    if (application is null)
+    {
+        return Results.NotFound(new { message = "Application not found." });
+    }
+
+    var reminder = new AdmissionReminder
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        ApplicationId = application.Id,
+        ApplicantName = application.ApplicantName,
+        ReminderType = request.ReminderType.Trim(),
+        DueAtUtc = request.DueAtUtc,
+        Status = "Open",
+        Notes = request.Notes?.Trim() ?? string.Empty,
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UpdatedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    dbContext.AdmissionReminders.Add(reminder);
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.reminder.created",
+        EntityId = reminder.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{reminder.ReminderType} reminder created for {application.ApplicantName}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/admissions/reminders/{reminder.Id}", reminder);
+}).RequirePermissions("announcements.create");
+
+app.MapGet("/api/v1/admissions/reminders", async (HttpContext httpContext, CommunicationDbContext dbContext, string? status, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.AdmissionReminders.Where(x => x.TenantId == tenantId);
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        query = query.Where(x => x.Status == status);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderBy(x => x.DueAtUtc).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/reminders/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateAdmissionReminderStatusRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var reminder = await dbContext.AdmissionReminders.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (reminder is null)
+    {
+        return Results.NotFound();
+    }
+
+    reminder.Status = request.Status;
+    reminder.Notes = request.Notes?.Trim() ?? reminder.Notes;
+    reminder.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.reminder.status-updated",
+        EntityId = reminder.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{reminder.ReminderType} reminder moved to {request.Status}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(reminder);
 }).RequirePermissions("announcements.create");
 
 app.MapGet("/api/v1/admissions/documents/pending", async (HttpContext httpContext, CommunicationDbContext dbContext, string? status, int page = 1, int pageSize = 20) =>
@@ -790,6 +969,50 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
         }
     }
 
+    if (!await dbContext.AdmissionCommunications.AnyAsync())
+    {
+        var application = await dbContext.AdmissionApplications.Where(x => x.TenantId == "default").OrderBy(x => x.CreatedAtUtc).FirstOrDefaultAsync();
+        if (application is not null)
+        {
+            dbContext.AdmissionCommunications.Add(new AdmissionCommunication
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                ApplicationId = application.Id,
+                ApplicantName = application.ApplicantName,
+                Channel = "Email",
+                TemplateName = "Application Follow-Up",
+                Subject = "Next steps for your University360 application",
+                Body = "Please review the counseling schedule and keep your academic transcript ready for verification.",
+                Status = "Sent",
+                SentAtUtc = DateTimeOffset.UtcNow.AddHours(-1),
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-1),
+                CreatedBy = "Admissions Desk"
+            });
+        }
+    }
+
+    if (!await dbContext.AdmissionReminders.AnyAsync())
+    {
+        var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == "default").OrderBy(x => x.CreatedAtUtc).Take(2).ToListAsync();
+        foreach (var application in applications)
+        {
+            dbContext.AdmissionReminders.Add(new AdmissionReminder
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                ApplicationId = application.Id,
+                ApplicantName = application.ApplicantName,
+                ReminderType = application.ApplicantName.Contains("Riya", StringComparison.OrdinalIgnoreCase) ? "Document Follow-Up" : "Offer Review",
+                DueAtUtc = DateTimeOffset.UtcNow.AddHours(application.ApplicantName.Contains("Riya", StringComparison.OrdinalIgnoreCase) ? 18 : 30),
+                Status = application.ApplicantName.Contains("Riya", StringComparison.OrdinalIgnoreCase) ? "Open" : "Completed",
+                Notes = application.ApplicantName.Contains("Riya", StringComparison.OrdinalIgnoreCase) ? "Call the applicant if transcript upload is still pending." : "Offer review completed by admissions desk.",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-2),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-1)
+            });
+        }
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -802,6 +1025,9 @@ public sealed record CreateCounselingSessionRequest(Guid ApplicationId, DateTime
 public sealed record UpdateCounselingSessionStatusRequest(string Status, string? Notes);
 public sealed record CreateApplicationDocumentRequest(string DocumentType, string? Notes);
 public sealed record UpdateApplicationDocumentStatusRequest(string Status, string? Notes);
+public sealed record CreateAdmissionCommunicationRequest(Guid ApplicationId, string Channel, string Subject, string Body, string? TemplateName, DateTimeOffset? ScheduledForUtc);
+public sealed record CreateAdmissionReminderRequest(Guid ApplicationId, string ReminderType, DateTimeOffset DueAtUtc, string? Notes);
+public sealed record UpdateAdmissionReminderStatusRequest(string Status, string? Notes);
 
 public sealed class Announcement
 {
@@ -898,6 +1124,37 @@ public sealed class ApplicationDocument
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
+public sealed class AdmissionCommunication
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid ApplicationId { get; set; }
+    public string ApplicantName { get; set; } = string.Empty;
+    public string Channel { get; set; } = "Email";
+    public string TemplateName { get; set; } = string.Empty;
+    public string Subject { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public string Status { get; set; } = "Sent";
+    public DateTimeOffset? ScheduledForUtc { get; set; }
+    public DateTimeOffset? SentAtUtc { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+}
+
+public sealed class AdmissionReminder
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid ApplicationId { get; set; }
+    public string ApplicantName { get; set; } = string.Empty;
+    public string ReminderType { get; set; } = string.Empty;
+    public DateTimeOffset DueAtUtc { get; set; }
+    public string Status { get; set; } = "Open";
+    public string Notes { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
 public sealed class AuditLogEntry
 {
     public Guid Id { get; set; }
@@ -918,6 +1175,8 @@ public sealed class CommunicationDbContext(DbContextOptions<CommunicationDbConte
     public DbSet<AdmissionApplication> AdmissionApplications => Set<AdmissionApplication>();
     public DbSet<CounselingSession> CounselingSessions => Set<CounselingSession>();
     public DbSet<ApplicationDocument> ApplicationDocuments => Set<ApplicationDocument>();
+    public DbSet<AdmissionCommunication> AdmissionCommunications => Set<AdmissionCommunication>();
+    public DbSet<AdmissionReminder> AdmissionReminders => Set<AdmissionReminder>();
     public DbSet<AuditLogEntry> AuditLogs => Set<AuditLogEntry>();
 }
 
@@ -927,7 +1186,9 @@ public static class AdmissionsWorkflowMetrics
         IReadOnlyCollection<AdmissionInquiry> inquiries,
         IReadOnlyCollection<AdmissionApplication> applications,
         IReadOnlyCollection<CounselingSession> counselingSessions,
-        IReadOnlyCollection<ApplicationDocument> documents) =>
+        IReadOnlyCollection<ApplicationDocument> documents,
+        IReadOnlyCollection<AdmissionCommunication> communications,
+        IReadOnlyCollection<AdmissionReminder> reminders) =>
         new(
             inquiries.Count,
             inquiries.Count(x => x.Status == "New"),
@@ -946,7 +1207,16 @@ public static class AdmissionsWorkflowMetrics
             new AdmissionsDocumentMetrics(
                 documents.Count,
                 documents.Count(x => x.Status == "Requested" || x.Status == "Under Review"),
-                documents.Count(x => x.Status == "Verified")));
+                documents.Count(x => x.Status == "Verified")),
+            new AdmissionsCommunicationMetrics(
+                communications.Count,
+                communications.Count(x => x.Channel == "Email"),
+                communications.Count(x => x.Channel == "SMS"),
+                communications.Count(x => x.Status == "Sent")),
+            new AdmissionsReminderMetrics(
+                reminders.Count,
+                reminders.Count(x => x.Status == "Open"),
+                reminders.Count(x => x.Status == "Completed")));
 }
 
 public sealed record AdmissionsWorkflowSummary(
@@ -956,8 +1226,12 @@ public sealed record AdmissionsWorkflowSummary(
     AdmissionInquiry? Latest,
     AdmissionsApplicationMetrics Applications,
     AdmissionsCounselingMetrics Counseling,
-    AdmissionsDocumentMetrics Documents);
+    AdmissionsDocumentMetrics Documents,
+    AdmissionsCommunicationMetrics Communications,
+    AdmissionsReminderMetrics Reminders);
 
 public sealed record AdmissionsApplicationMetrics(int Total, int Submitted, int UnderReview, int Qualified, int Offered);
 public sealed record AdmissionsCounselingMetrics(int Total, int Scheduled, int Completed);
 public sealed record AdmissionsDocumentMetrics(int Total, int Pending, int Verified);
+public sealed record AdmissionsCommunicationMetrics(int Total, int Email, int Sms, int Sent);
+public sealed record AdmissionsReminderMetrics(int Total, int Open, int Completed);

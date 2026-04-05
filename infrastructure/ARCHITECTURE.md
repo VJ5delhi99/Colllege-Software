@@ -68,13 +68,13 @@ To close the most visible product gaps without creating a parallel architecture,
 - `organization-service` now carries the live public organization catalog used by the website: colleges, campuses, departments, featured programs, and catalog summary metrics
 - `communication-service` carries public homepage content and inquiry capture: announcement feed, ticker items, admissions contact data, and inquiry workflow
 - the web experience should consume those public endpoints directly so homepage sections are no longer maintained as disconnected static UI data
-- admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, and public-content health next to existing audit and communication views
+- admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, applicant follow-ups, reminder queues, and public-content health next to existing audit and communication views
 
 ## Near-Term Architectural Follow-Up
 
 The dedicated organization boundary is now extracted, but there is still follow-through work to finish:
 
 1. move academic catalog ownership fully to explicit program/course/offering integration contracts between `organization-service` and `academic-service`
-2. keep shrinking legacy public-catalog duplication from transitional endpoints that still exist in `academic-service`
-3. extend `communication-service` from inquiry capture into fuller applicant counseling, document, and communication automation
-4. promote more of the public homepage contracts into gateway/BFF aggregation once the new organization boundary is the only source of truth
+2. extend `communication-service` from inquiry capture into deeper applicant journey automation, SLA tracking, and escalation workflows
+3. promote more of the public homepage contracts into gateway/BFF aggregation once the new organization boundary is the only source of truth
+4. continue decomposing the highest-change services away from one-file minimal-API startup composition
