@@ -49,3 +49,31 @@
 
 - `identity-service` now has an explicit internal split between `Domain`, `Application`, `Infrastructure`, and `Api` folders so startup is reduced to service composition and endpoint wiring.
 - The next architectural step is to repeat this pattern across the remaining high-change services, starting with finance, attendance, and academic.
+
+## Product Review Refresh
+
+The current repository is stronger on service breadth than on end-to-end product cohesion. The main product gaps found during review were:
+
+- the public homepage depended on static content instead of service-backed campus and program data
+- admissions discovery ended at marketing copy with no inquiry capture workflow
+- admin operations pages exposed audit and metrics, but not the admissions pipeline created by public traffic
+- the blueprint referenced a university -> college -> campus operating model, while the shipped experience did not surface that hierarchy clearly
+- authenticated pages overused demo assumptions and underused role-appropriate live data
+
+## Updated Solution Direction
+
+To close the most visible product gaps without creating a parallel architecture, the platform now treats public discovery and admissions as first-class capabilities:
+
+- `academic-service` carries the live public organization catalog used by the website: colleges, campuses, featured programs, and catalog summary metrics
+- `communication-service` carries public homepage content and inquiry capture: announcement feed, ticker items, admissions contact data, and inquiry workflow
+- the web experience should consume those public endpoints directly so homepage sections are no longer maintained as disconnected static UI data
+- admin and operations pages should surface inquiry volume, status progression, and public-content health next to existing audit and communication views
+
+## Near-Term Architectural Follow-Up
+
+This still does not replace the planned dedicated organization service from the college-management blueprint. The recommended next refactor remains:
+
+1. extract college, campus, department, and staff structure into a dedicated `organization-service`
+2. move academic catalog ownership to explicit program/course/offering boundaries
+3. keep `communication-service` focused on publication, notification, and inquiry orchestration
+4. promote the current public homepage contracts into gateway/BFF aggregation once the organization boundary exists

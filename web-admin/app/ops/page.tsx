@@ -24,6 +24,24 @@ type AuditLogItem = {
   createdAtUtc: string;
 };
 
+type InquiryItem = {
+  id: string;
+  fullName: string;
+  email: string;
+  preferredCampus: string;
+  interestedProgram: string;
+  status: string;
+  assignedTo: string;
+  createdAtUtc: string;
+};
+
+type InquirySummary = {
+  total: number;
+  newItems: number;
+  inReview: number;
+  latest?: InquiryItem | null;
+};
+
 async function loadOptionalJson(url: string, headers: HeadersInit, enabled: boolean) {
   if (!enabled) {
     return null;
@@ -48,11 +66,11 @@ const demoNotifications: NotificationItem[] = [
   },
   {
     id: "notification-2",
-    title: "Placement drive coordination",
-    message: "Corporate relations has opened coordination windows for next month's placement drive.",
+    title: "New admissions inquiry from Riya Menon",
+    message: "B.Tech Computer Science and Engineering | North City Campus",
     audience: "Admin",
-    source: "operations",
-    createdAtUtc: "2026-03-28T11:30:00Z"
+    source: "admissions",
+    createdAtUtc: "2026-03-29T11:30:00Z"
   }
 ];
 
@@ -67,11 +85,34 @@ const demoAuditLogs: AuditLogItem[] = [
   },
   {
     id: "audit-2",
-    action: "student.enrollment.created",
-    entityId: "enrollment-402",
-    actor: "Admin",
-    details: "Student enrolled in CSE401 for 2026-SPRING",
-    createdAtUtc: "2026-03-28T14:10:00Z"
+    action: "admissions.inquiry.created",
+    entityId: "inquiry-402",
+    actor: "riya.menon@example.com",
+    details: "Riya Menon requested B.Tech Computer Science and Engineering (North City Campus)",
+    createdAtUtc: "2026-03-29T11:30:00Z"
+  }
+];
+
+const demoInquiries: InquiryItem[] = [
+  {
+    id: "inquiry-1",
+    fullName: "Riya Menon",
+    email: "riya.menon@example.com",
+    preferredCampus: "North City Campus",
+    interestedProgram: "B.Tech Computer Science and Engineering",
+    status: "New",
+    assignedTo: "",
+    createdAtUtc: "2026-03-29T11:30:00Z"
+  },
+  {
+    id: "inquiry-2",
+    fullName: "Aditya Rao",
+    email: "aditya.rao@example.com",
+    preferredCampus: "Health Sciences Campus",
+    interestedProgram: "B.Sc Allied Health Sciences",
+    status: "In Review",
+    assignedTo: "Admissions Desk",
+    createdAtUtc: "2026-03-28T09:00:00Z"
   }
 ];
 
@@ -85,6 +126,8 @@ function formatTimestamp(value: string) {
 export default function OperationsPage() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
+  const [inquirySummary, setInquirySummary] = useState<InquirySummary>({ total: 0, newItems: 0, inReview: 0, latest: null });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
@@ -99,6 +142,8 @@ export default function OperationsPage() {
           if (!cancelled) {
             setNotifications(demoNotifications);
             setAuditLogs(demoAuditLogs);
+            setInquiries(demoInquiries);
+            setInquirySummary({ total: 2, newItems: 1, inReview: 1, latest: demoInquiries[0] });
             setError(null);
           }
           return;
@@ -115,8 +160,10 @@ export default function OperationsPage() {
         const canViewAttendance = session.permissions.includes("attendance.view");
         const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
-          loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, canCreateAnnouncements),
+        const [notificationsPayload, admissionsPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, true),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/inquiries?pageSize=8`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/summary`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac),
           loadOptionalJson(`${apiConfig.academic()}/api/v1/audit-logs?pageSize=10`, headers, canViewResults),
@@ -138,6 +185,8 @@ export default function OperationsPage() {
 
         if (!cancelled) {
           setNotifications((notificationsPayload?.items ?? []) as NotificationItem[]);
+          setInquiries((admissionsPayload?.items ?? []) as InquiryItem[]);
+          setInquirySummary((admissionsSummaryPayload ?? { total: 0, newItems: 0, inReview: 0, latest: null }) as InquirySummary);
           setAuditLogs(mergedAuditLogs);
           setError(null);
         }
@@ -173,9 +222,9 @@ export default function OperationsPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">Operations Hub</p>
-              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Notifications, audit visibility, and authenticated next actions.</h1>
+              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Public demand, notifications, and audit visibility in one place.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                Use this page as the role-aware entry point after sign-in. It brings together key communications and recent operational changes instead of sending users directly into disconnected modules.
+                This workspace now closes the loop between the refreshed public website and internal teams by exposing the admissions pipeline alongside operational activity.
               </p>
             </div>
 
@@ -183,11 +232,11 @@ export default function OperationsPage() {
               <Link href="/" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10">
                 Public Homepage
               </Link>
-              <Link href="/rbac" className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
-                RBAC Console
-              </Link>
               <Link href="/portal" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10">
                 Role Portal
+              </Link>
+              <Link href="/rbac" className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
+                RBAC Console
               </Link>
               <button
                 type="button"
@@ -201,78 +250,118 @@ export default function OperationsPage() {
           </div>
         </div>
 
-        {error ? (
-          <div className="mt-6 rounded-[1.5rem] border border-rose-400/25 bg-rose-500/10 px-4 py-4 text-sm text-rose-100">
-            {error}
-          </div>
-        ) : null}
+        {error ? <div className="mt-6 rounded-[1.5rem] border border-rose-400/25 bg-rose-500/10 px-4 py-4 text-sm text-rose-100">{error}</div> : null}
 
-        <div className="mt-6 grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+        <div className="mt-6 grid gap-5 md:grid-cols-3">
+          <article className="rounded-[1.7rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Admissions inquiries</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : inquirySummary.total}</p>
+            <p className="mt-3 text-sm leading-6 text-cyan-100/90">Total public inquiries now visible to operations.</p>
+          </article>
+          <article className="rounded-[1.7rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">New inquiries</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : inquirySummary.newItems}</p>
+            <p className="mt-3 text-sm leading-6 text-cyan-100/90">Leads still waiting for first-touch follow-up.</p>
+          </article>
+          <article className="rounded-[1.7rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Notifications</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : notifications.length}</p>
+            <p className="mt-3 text-sm leading-6 text-cyan-100/90">Role-available notifications, not just publisher-only feeds.</p>
+          </article>
+        </div>
+
+        <div className="mt-6 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Notifications</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">What needs attention now</h2>
+                <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Admissions Pipeline</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Public demand now lands in ops</h2>
               </div>
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
-                {loading ? "Loading" : `${notifications.length} items`}
+                {loading ? "Loading" : `${inquirySummary.inReview} in review`}
               </span>
             </div>
 
             <div className="mt-5 space-y-4">
-              {notifications.map((item) => (
+              {inquiries.map((item) => (
                 <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-white">{item.title}</p>
-                    <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.audience}</span>
+                    <p className="text-sm font-medium text-white">{item.fullName}</p>
+                    <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-cyan-100">
+                      {item.status}
+                    </span>
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-400">{item.message}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.interestedProgram}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.preferredCampus || "Campus preference not shared"}</p>
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
-                    {item.source} · {formatTimestamp(item.createdAtUtc)}
+                    {item.email} | {item.assignedTo || "Unassigned"} | {formatTimestamp(item.createdAtUtc)}
                   </p>
                 </article>
               ))}
 
-              {!loading && notifications.length === 0 ? (
-                <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">
-                  No notifications are available for the current role yet.
-                </div>
-              ) : null}
+              {!loading && inquiries.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No admissions inquiries are available for the current tenant yet.</div> : null}
             </div>
           </section>
 
-          <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Audit Trail</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">Recent operational changes</h2>
+          <div className="grid gap-5">
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Notifications</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">What needs attention now</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${notifications.length} items`}
+                </span>
               </div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
-                {loading ? "Loading" : `${auditLogs.length} records`}
-              </span>
-            </div>
 
-            <div className="mt-5 space-y-4">
-              {auditLogs.map((entry) => (
-                <article key={entry.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-white">{entry.action}</p>
-                    <span className="text-xs uppercase tracking-[0.16em] text-slate-400">{formatTimestamp(entry.createdAtUtc)}</span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">{entry.details}</p>
-                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
-                    Actor: {entry.actor} · Entity: {entry.entityId}
-                  </p>
-                </article>
-              ))}
+              <div className="mt-5 space-y-4">
+                {notifications.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.title}</p>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.audience}</span>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-400">{item.message}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
+                      {item.source} | {formatTimestamp(item.createdAtUtc)}
+                    </p>
+                  </article>
+                ))}
 
-              {!loading && auditLogs.length === 0 ? (
-                <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">
-                  No audit records are available yet for the current tenant.
+                {!loading && notifications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No notifications are available for the current role yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Audit Trail</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Recent operational changes</h2>
                 </div>
-              ) : null}
-            </div>
-          </section>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${auditLogs.length} records`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {auditLogs.map((entry) => (
+                  <article key={entry.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{entry.action}</p>
+                      <span className="text-xs uppercase tracking-[0.16em] text-slate-400">{formatTimestamp(entry.createdAtUtc)}</span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{entry.details}</p>
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">
+                      Actor: {entry.actor} | Entity: {entry.entityId}
+                    </p>
+                  </article>
+                ))}
+
+                {!loading && auditLogs.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No audit records are available yet for the current tenant.</div> : null}
+              </div>
+            </section>
+          </div>
         </div>
       </div>
     </main>

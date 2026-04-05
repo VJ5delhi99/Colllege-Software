@@ -159,6 +159,7 @@ export default function PortalPage() {
         const canViewResults = activeSession.permissions.includes("results.view");
         const canManageFinance = activeSession.permissions.includes("finance.manage");
         const canCreateAnnouncements = activeSession.permissions.includes("announcements.create");
+        const canViewCommunication = true;
 
         const [
           usersPayload,
@@ -178,9 +179,9 @@ export default function PortalPage() {
           loadOptionalJson(`${apiConfig.identity()}/api/v1/users`, headers, canManageRbac),
           loadOptionalJson(`${apiConfig.attendance()}/api/v1/analytics/summary`, headers, canViewAttendance),
           loadOptionalJson(`${apiConfig.finance()}/api/v1/payments/summary`, headers, canManageFinance),
-          loadOptionalJson(`${apiConfig.communication()}/api/v1/dashboard/summary`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/dashboard/summary`, headers, canViewCommunication),
           loadOptionalJson(`${apiConfig.academic()}/api/v1/dashboard/summary`, headers, canViewResults),
-          loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(activeSession.user.role)}`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(activeSession.user.role)}`, headers, canViewCommunication),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=5`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=5`, headers, canManageRbac),
           loadOptionalJson(`${apiConfig.academic()}/api/v1/audit-logs?pageSize=5`, headers, canViewResults),

@@ -47,7 +47,10 @@ export default function AuthPage() {
     try {
       if (mode === "login") {
         await loginAdmin({ email, password, tenantId, mfaCode: mfaCode || undefined });
-        setMessage("Sign-in successful. You can now open the operations hub, RBAC console, or other protected modules.");
+        setMessage("Sign-in successful. Redirecting to the role portal...");
+        window.setTimeout(() => {
+          window.location.href = "/portal";
+        }, 400);
         return;
       }
 

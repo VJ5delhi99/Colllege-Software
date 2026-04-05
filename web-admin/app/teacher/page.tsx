@@ -50,7 +50,7 @@ export default function TeacherPage() {
         const [attendanceResponse, academicResponse, resultsResponse] = await Promise.all([
           fetch(`${apiConfig.attendance()}/api/v1/analytics/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/dashboard/summary`, { headers }),
-          fetch(`${apiConfig.exam()}/api/v1/results?studentId=${session.user.id}&pageSize=5`, { headers })
+          fetch(`${apiConfig.exam()}/api/v1/results/summary`, { headers })
         ]);
 
         if (!attendanceResponse.ok || !academicResponse.ok || !resultsResponse.ok) {
@@ -68,7 +68,7 @@ export default function TeacherPage() {
             attendancePercentage: attendancePayload?.percentage ?? 0,
             totalCourses: academicPayload?.totalCourses ?? 0,
             nextCourse: academicPayload?.nextCourse?.title ?? "No class scheduled",
-            recentResults: resultsPayload?.items?.length ?? 0
+            recentResults: resultsPayload?.totalPublished ?? 0
           });
           setError(null);
           setLoading(false);
@@ -146,9 +146,9 @@ export default function TeacherPage() {
             <p className="mt-3 text-sm leading-6 text-amber-100/90">The most immediate schedule cue for teaching flow.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Recent result records</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Published result cycles</p>
             <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.recentResults}</p>
-            <p className="mt-3 text-sm leading-6 text-amber-100/90">Keeps assessment publishing activity close to class management.</p>
+            <p className="mt-3 text-sm leading-6 text-amber-100/90">Assessment publishing stays visible without pretending the teacher is a student record owner.</p>
           </article>
         </section>
       </div>

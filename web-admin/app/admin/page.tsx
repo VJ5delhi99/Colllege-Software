@@ -11,13 +11,19 @@ type AdminState = {
   feeCollection: number;
   auditCount: number;
   announcementCount: number;
+  campusCount: number;
+  programCount: number;
+  inquiryCount: number;
 };
 
 const demoState: AdminState = {
   userCount: 2480,
   feeCollection: 57000,
   auditCount: 18,
-  announcementCount: 6
+  announcementCount: 6,
+  campusCount: 3,
+  programCount: 6,
+  inquiryCount: 12
 };
 
 function formatMoney(value: number) {
@@ -51,22 +57,26 @@ export default function AdminPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [usersResponse, financeResponse, communicationResponse, identityAuditResponse] = await Promise.all([
+        const [usersResponse, financeResponse, communicationResponse, identityAuditResponse, catalogResponse, inquirySummaryResponse] = await Promise.all([
           fetch(`${apiConfig.identity()}/api/v1/users`, { headers }),
           fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/dashboard/summary`, { headers }),
-          fetch(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=20`, { headers })
+          fetch(`${apiConfig.identity()}/api/v1/audit-logs?pageSize=20`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/catalog/summary`, { headers }),
+          fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers })
         ]);
 
-        if (!usersResponse.ok || !financeResponse.ok || !communicationResponse.ok || !identityAuditResponse.ok) {
+        if (!usersResponse.ok || !financeResponse.ok || !communicationResponse.ok || !identityAuditResponse.ok || !catalogResponse.ok || !inquirySummaryResponse.ok) {
           throw new Error("Unable to load the admin workspace.");
         }
 
-        const [usersPayload, financePayload, communicationPayload, identityAuditPayload] = await Promise.all([
+        const [usersPayload, financePayload, communicationPayload, identityAuditPayload, catalogPayload, inquirySummaryPayload] = await Promise.all([
           usersResponse.json(),
           financeResponse.json(),
           communicationResponse.json(),
-          identityAuditResponse.json()
+          identityAuditResponse.json(),
+          catalogResponse.json(),
+          inquirySummaryResponse.json()
         ]);
 
         if (!cancelled) {
@@ -74,7 +84,10 @@ export default function AdminPage() {
             userCount: Array.isArray(usersPayload) ? usersPayload.length : 0,
             feeCollection: financePayload?.totalCollected ?? 0,
             auditCount: identityAuditPayload?.items?.length ?? 0,
-            announcementCount: communicationPayload?.total ?? 0
+            announcementCount: communicationPayload?.total ?? 0,
+            campusCount: catalogPayload?.campuses ?? 0,
+            programCount: catalogPayload?.programs ?? 0,
+            inquiryCount: inquirySummaryPayload?.total ?? 0
           });
           setError(null);
           setLoading(false);
@@ -108,9 +121,9 @@ export default function AdminPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.4em] text-fuchsia-300">Admin workspace</p>
-              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Institution-wide control without losing context.</h1>
+              <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Institution-wide control with public-to-ops visibility.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                This surface is intentionally admin-focused: people, finance, communications, and audited actions stay visible together.
+                The admin view now carries catalog coverage and admissions demand beside identity, finance, and communication signals.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -129,11 +142,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        {error ? (
-          <div className="mt-6 rounded-[1.5rem] border border-amber-300/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-50">
-            {error}
-          </div>
-        ) : null}
+        {error ? <div className="mt-6 rounded-[1.5rem] border border-amber-300/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-50">{error}</div> : null}
 
         <section className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
@@ -147,6 +156,19 @@ export default function AdminPage() {
             <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">A finance signal that belongs next to admin oversight.</p>
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Campuses | Programs</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : `${state.campusCount} | ${state.programCount}`}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Live public catalog coverage carried into the admin view.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Admissions inquiries</p>
+            <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.inquiryCount}</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Inbound demand from the refreshed public experience.</p>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-5 md:grid-cols-3">
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
             <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Identity audit events</p>
             <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.auditCount}</p>
             <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Operational traceability around sessions and access changes.</p>
@@ -154,7 +176,12 @@ export default function AdminPage() {
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
             <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Announcements</p>
             <p className="mt-4 text-3xl font-semibold text-white">{loading ? "..." : state.announcementCount}</p>
-            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Communications remain visible beside admin controls.</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">Public and internal communication stays visible beside controls.</p>
+          </article>
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Control direction</p>
+            <p className="mt-4 text-xl font-semibold text-white">From homepage signal to ops follow-up</p>
+            <p className="mt-3 text-sm leading-6 text-fuchsia-100/90">The product now expresses a fuller journey instead of isolated role pages.</p>
           </article>
         </section>
       </div>
