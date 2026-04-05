@@ -357,6 +357,86 @@ app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, FinanceDbContex
     return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
 }).RequirePermissions("finance.manage");
 
+app.MapGet("/api/v1/procurement/summary", async (HttpContext httpContext, FinanceDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var vendors = await dbContext.Vendors.Where(x => x.TenantId == tenantId).ToListAsync();
+    var requisitions = await dbContext.PurchaseRequisitions.Where(x => x.TenantId == tenantId).ToListAsync();
+    var purchaseOrders = await dbContext.PurchaseOrders.Where(x => x.TenantId == tenantId).ToListAsync();
+    var inventoryItems = await dbContext.InventoryItems.Where(x => x.TenantId == tenantId).ToListAsync();
+
+    return Results.Ok(ProcurementSummary.Create(vendors, requisitions, purchaseOrders, inventoryItems));
+}).RequirePermissions("finance.manage");
+
+app.MapGet("/api/v1/procurement/vendors", async (HttpContext httpContext, FinanceDbContext dbContext) =>
+    await dbContext.Vendors.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderBy(x => x.Name).ToListAsync())
+    .RequirePermissions("finance.manage");
+
+app.MapGet("/api/v1/procurement/requisitions", async (HttpContext httpContext, FinanceDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.PurchaseRequisitions.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.RequestedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequirePermissions("finance.manage");
+
+app.MapPost("/api/v1/procurement/requisitions/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateProcurementStatusRequest request, FinanceDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.PurchaseRequisitions.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.ApproverName = string.IsNullOrWhiteSpace(request.ActorName) ? item.ApproverName : request.ActorName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequirePermissions("finance.manage");
+
+app.MapGet("/api/v1/procurement/purchase-orders", async (HttpContext httpContext, FinanceDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.PurchaseOrders.Where(x => x.TenantId == tenantId).OrderByDescending(x => x.IssuedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequirePermissions("finance.manage");
+
+app.MapPost("/api/v1/procurement/purchase-orders/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateProcurementStatusRequest request, FinanceDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.PurchaseOrders.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.UpdatedBy = string.IsNullOrWhiteSpace(request.ActorName) ? item.UpdatedBy : request.ActorName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequirePermissions("finance.manage");
+
+app.MapGet("/api/v1/procurement/inventory", async (HttpContext httpContext, FinanceDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.InventoryItems.Where(x => x.TenantId == tenantId).OrderBy(x => x.Name);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequirePermissions("finance.manage");
+
 app.Run();
 
 static async Task SeedFinanceDataAsync(WebApplication app)
@@ -364,52 +444,179 @@ static async Task SeedFinanceDataAsync(WebApplication app)
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<FinanceDbContext>();
 
-    if (await dbContext.Payments.AnyAsync())
+    if (!await dbContext.Payments.AnyAsync())
     {
-        return;
+        dbContext.Payments.AddRange(
+        [
+            new Payment
+            {
+                TenantId = "default",
+                Id = Guid.NewGuid(),
+                StudentId = KnownUsers.StudentId,
+                Amount = 45000,
+                Currency = "INR",
+                Provider = "Razorpay",
+                Status = "Paid",
+                PaidAtUtc = DateTimeOffset.UtcNow.AddDays(-15),
+                InvoiceNumber = "INV-2026-001"
+            },
+            new Payment
+            {
+                TenantId = "default",
+                Id = Guid.NewGuid(),
+                StudentId = KnownUsers.StudentId,
+                Amount = 12000,
+                Currency = "INR",
+                Provider = "Stripe",
+                Status = "Paid",
+                PaidAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+                InvoiceNumber = "INV-2026-002"
+            }
+        ]);
     }
 
-    dbContext.Payments.AddRange(
-    [
-        new Payment
-        {
-            TenantId = "default",
-            Id = Guid.NewGuid(),
-            StudentId = KnownUsers.StudentId,
-            Amount = 45000,
-            Currency = "INR",
-            Provider = "Razorpay",
-            Status = "Paid",
-            PaidAtUtc = DateTimeOffset.UtcNow.AddDays(-15),
-            InvoiceNumber = "INV-2026-001"
-        },
-        new Payment
-        {
-            TenantId = "default",
-            Id = Guid.NewGuid(),
-            StudentId = KnownUsers.StudentId,
-            Amount = 12000,
-            Currency = "INR",
-            Provider = "Stripe",
-            Status = "Paid",
-            PaidAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
-            InvoiceNumber = "INV-2026-002"
-        }
-    ]);
-
-    dbContext.PaymentSessions.Add(new PaymentSession
+    if (!await dbContext.PaymentSessions.AnyAsync())
     {
-        Id = Guid.NewGuid(),
-        TenantId = "default",
-        StudentId = KnownUsers.StudentId,
-        Provider = "PayPal",
-        Amount = 8000,
-        Currency = "INR",
-        InvoiceNumber = "INV-2026-003",
-        ProviderReference = $"paypal_{Guid.NewGuid():N}",
-        Status = "Pending",
-        CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-2)
-    });
+        dbContext.PaymentSessions.Add(new PaymentSession
+        {
+            Id = Guid.NewGuid(),
+            TenantId = "default",
+            StudentId = KnownUsers.StudentId,
+            Provider = "PayPal",
+            Amount = 8000,
+            Currency = "INR",
+            InvoiceNumber = "INV-2026-003",
+            ProviderReference = $"paypal_{Guid.NewGuid():N}",
+            Status = "Pending",
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-2)
+        });
+    }
+
+    if (!await dbContext.Vendors.AnyAsync())
+    {
+        dbContext.Vendors.AddRange(
+        [
+            new VendorProfile
+            {
+                Id = Guid.Parse("51000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                Code = "VND-ICT-001",
+                Name = "Campus Tech Supplies",
+                CategoryName = "IT Equipment",
+                Status = "Active",
+                ContactEmail = "sales@campustech.example",
+                City = "Bengaluru",
+                OnboardedAtUtc = DateTimeOffset.UtcNow.AddMonths(-18),
+                LastOrderAtUtc = DateTimeOffset.UtcNow.AddDays(-12)
+            },
+            new VendorProfile
+            {
+                Id = Guid.Parse("51000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                Code = "VND-LAB-002",
+                Name = "Labline Scientific",
+                CategoryName = "Lab Consumables",
+                Status = "Active",
+                ContactEmail = "support@labline.example",
+                City = "Chennai",
+                OnboardedAtUtc = DateTimeOffset.UtcNow.AddMonths(-10),
+                LastOrderAtUtc = DateTimeOffset.UtcNow.AddDays(-5)
+            }
+        ]);
+    }
+
+    if (!await dbContext.PurchaseRequisitions.AnyAsync())
+    {
+        dbContext.PurchaseRequisitions.AddRange(
+        [
+            new PurchaseRequisition
+            {
+                Id = Guid.Parse("52000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                Title = "Replace projector units for seminar halls",
+                DepartmentName = "Campus Services",
+                RequesterName = "Madhav Iyer",
+                Status = "Pending Approval",
+                Priority = "High",
+                Amount = 185000,
+                RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-3),
+                RequiredByUtc = DateTimeOffset.UtcNow.AddDays(10),
+                ApproverName = "Finance Controller",
+                Note = "Needed before placement week."
+            },
+            new PurchaseRequisition
+            {
+                Id = Guid.Parse("52000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                Title = "Biochemistry reagent refill",
+                DepartmentName = "Biosciences",
+                RequesterName = "Dr. Asha Varma",
+                Status = "Approved",
+                Priority = "Medium",
+                Amount = 62000,
+                RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-8),
+                RequiredByUtc = DateTimeOffset.UtcNow.AddDays(5),
+                ApproverName = "Procurement Desk",
+                Note = "Approved for PO creation."
+            }
+        ]);
+    }
+
+    if (!await dbContext.PurchaseOrders.AnyAsync())
+    {
+        dbContext.PurchaseOrders.AddRange(
+        [
+            new PurchaseOrder
+            {
+                Id = Guid.Parse("53000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                RequisitionId = Guid.Parse("52000000-0000-0000-0000-000000000002"),
+                OrderNumber = "PO-2026-1001",
+                VendorName = "Labline Scientific",
+                Status = "Issued",
+                Amount = 62000,
+                IssuedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+                ExpectedDeliveryUtc = DateTimeOffset.UtcNow.AddDays(4),
+                UpdatedBy = "Procurement Desk",
+                Note = "Awaiting dispatch confirmation."
+            }
+        ]);
+    }
+
+    if (!await dbContext.InventoryItems.AnyAsync())
+    {
+        dbContext.InventoryItems.AddRange(
+        [
+            new InventoryItem
+            {
+                Id = Guid.Parse("54000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                Sku = "IT-PROJ-01",
+                Name = "Seminar Hall Projector",
+                CategoryName = "AV Equipment",
+                CampusName = "North City Campus",
+                InStockQuantity = 1,
+                ReorderLevel = 2,
+                Unit = "units",
+                Status = "Low Stock",
+                LastReceivedAtUtc = DateTimeOffset.UtcNow.AddMonths(-4)
+            },
+            new InventoryItem
+            {
+                Id = Guid.Parse("54000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                Sku = "LAB-REAG-07",
+                Name = "Biochemistry Reagent Kit",
+                CategoryName = "Lab Consumables",
+                CampusName = "Health Sciences Campus",
+                InStockQuantity = 14,
+                ReorderLevel = 10,
+                Unit = "kits",
+                Status = "Healthy",
+                LastReceivedAtUtc = DateTimeOffset.UtcNow.AddDays(-6)
+            }
+        ]);
+    }
 
     await dbContext.SaveChangesAsync();
 }
@@ -436,6 +643,7 @@ public sealed record PaymentSessionRequest(string TenantId, Guid StudentId, deci
 public sealed record StudentPaymentSessionRequest(string TenantId, decimal Amount, string Currency, string Provider, string InvoiceNumber);
 public sealed record PaymentWebhookRequest(string ProviderReference, string Status, string Signature, string PayloadJson);
 public sealed record RefundRequest(string TenantId, Guid PaymentId, decimal Amount, string Reason);
+public sealed record UpdateProcurementStatusRequest(string Status, string? ActorName, string? Note);
 public sealed record StudentFinanceSummary(
     decimal TotalPaid,
     int TotalTransactions,
@@ -454,6 +662,34 @@ public sealed record StudentFinanceSummary(
             orderedSessions.Count(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
             orderedPayments.FirstOrDefault(),
             orderedSessions.FirstOrDefault());
+    }
+}
+
+public sealed record ProcurementSnapshot(
+    int ActiveVendors,
+    int OpenRequisitions,
+    int PendingApproval,
+    int PurchaseOrdersOpen,
+    int ReorderAlerts,
+    decimal MonthlyCommittedSpend);
+
+public static class ProcurementSummary
+{
+    public static ProcurementSnapshot Create(
+        IReadOnlyCollection<VendorProfile> vendors,
+        IReadOnlyCollection<PurchaseRequisition> requisitions,
+        IReadOnlyCollection<PurchaseOrder> purchaseOrders,
+        IReadOnlyCollection<InventoryItem> inventoryItems)
+    {
+        var activeVendors = vendors.Count(x => string.Equals(x.Status, "Active", StringComparison.OrdinalIgnoreCase));
+        var openRequisitions = requisitions.Count(x => !string.Equals(x.Status, "Rejected", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase));
+        var pendingApproval = requisitions.Count(x => x.Status.Contains("Pending", StringComparison.OrdinalIgnoreCase));
+        var purchaseOrdersOpen = purchaseOrders.Count(x => !string.Equals(x.Status, "Delivered", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase));
+        var reorderAlerts = inventoryItems.Count(x => x.InStockQuantity <= x.ReorderLevel);
+        var monthStart = new DateTimeOffset(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, TimeSpan.Zero);
+        var monthlyCommittedSpend = requisitions.Where(x => x.RequestedAtUtc >= monthStart).Sum(x => x.Amount) + purchaseOrders.Where(x => x.IssuedAtUtc >= monthStart).Sum(x => x.Amount);
+
+        return new ProcurementSnapshot(activeVendors, openRequisitions, pendingApproval, purchaseOrdersOpen, reorderAlerts, monthlyCommittedSpend);
     }
 }
 
@@ -515,6 +751,66 @@ public sealed class ReconciliationRun
     public DateTimeOffset ExecutedAtUtc { get; set; }
 }
 
+public sealed class VendorProfile
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string CategoryName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Active";
+    public string ContactEmail { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
+    public DateTimeOffset OnboardedAtUtc { get; set; }
+    public DateTimeOffset? LastOrderAtUtc { get; set; }
+}
+
+public sealed class PurchaseRequisition
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Title { get; set; } = string.Empty;
+    public string DepartmentName { get; set; } = string.Empty;
+    public string RequesterName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Pending Approval";
+    public string Priority { get; set; } = "Medium";
+    public decimal Amount { get; set; }
+    public DateTimeOffset RequestedAtUtc { get; set; }
+    public DateTimeOffset RequiredByUtc { get; set; }
+    public string ApproverName { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class PurchaseOrder
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid RequisitionId { get; set; }
+    public string OrderNumber { get; set; } = string.Empty;
+    public string VendorName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Issued";
+    public decimal Amount { get; set; }
+    public DateTimeOffset IssuedAtUtc { get; set; }
+    public DateTimeOffset ExpectedDeliveryUtc { get; set; }
+    public string UpdatedBy { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class InventoryItem
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string Sku { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string CategoryName { get; set; } = string.Empty;
+    public string CampusName { get; set; } = string.Empty;
+    public int InStockQuantity { get; set; }
+    public int ReorderLevel { get; set; }
+    public string Unit { get; set; } = string.Empty;
+    public string Status { get; set; } = "Healthy";
+    public DateTimeOffset LastReceivedAtUtc { get; set; }
+}
+
 public sealed class FinanceAuditLog
 {
     public Guid Id { get; set; }
@@ -546,6 +842,10 @@ public sealed class FinanceDbContext(DbContextOptions<FinanceDbContext> options)
     public DbSet<PaymentRefund> Refunds => Set<PaymentRefund>();
     public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
     public DbSet<FinanceAuditLog> AuditLogs => Set<FinanceAuditLog>();
+    public DbSet<VendorProfile> Vendors => Set<VendorProfile>();
+    public DbSet<PurchaseRequisition> PurchaseRequisitions => Set<PurchaseRequisition>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<InventoryItem> InventoryItems => Set<InventoryItem>();
 }
 
 public sealed class PaymentGatewayCatalog(IConfiguration configuration)

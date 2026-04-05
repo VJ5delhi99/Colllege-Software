@@ -31,6 +31,12 @@ type AdminState = {
   communications: number;
   openReminders: number;
   feeCollection: number;
+  activeEmployees: number;
+  pendingLeaveRequests: number;
+  openRecruitment: number;
+  pendingProcurementApproval: number;
+  reorderAlerts: number;
+  monthlyCommittedSpend: number;
   followUps: FollowUpItem[];
   studentRequests: StudentRequestItem[];
   error: string | null;
@@ -45,6 +51,12 @@ const demoState: AdminState = {
   communications: 1,
   openReminders: 1,
   feeCollection: 57000,
+  activeEmployees: 3,
+  pendingLeaveRequests: 1,
+  openRecruitment: 2,
+  pendingProcurementApproval: 1,
+  reorderAlerts: 1,
+  monthlyCommittedSpend: 309000,
   followUps: [
     {
       id: "communication-1",
@@ -102,26 +114,30 @@ export default function AdminMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse] = await Promise.all([
+        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse, hrSummaryResponse, procurementSummaryResponse] = await Promise.all([
           fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=3`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/reminders?pageSize=3`, { headers }),
           fetch(`${apiConfig.student()}/api/v1/requests?pageSize=3`, { headers }),
-          fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers })
+          fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/hr/summary`, { headers }),
+          fetch(`${apiConfig.finance()}/api/v1/procurement/summary`, { headers })
         ]);
 
-        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok) {
+        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok || !hrSummaryResponse.ok || !procurementSummaryResponse.ok) {
           throw new Error("Admin mobile workspace is unavailable.");
         }
 
-        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance] = await Promise.all([
+        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance, hrSummary, procurementSummary] = await Promise.all([
           organizationResponse.json(),
           admissionsResponse.json(),
           communicationsResponse.json(),
           remindersResponse.json(),
           requestsResponse.json(),
-          financeResponse.json()
+          financeResponse.json(),
+          hrSummaryResponse.json(),
+          procurementSummaryResponse.json()
         ]);
         const followUps: FollowUpItem[] = [
           ...((communicationsPayload?.items ?? []) as Array<{ id: string; applicantName: string; subject: string; channel: string; status: string }>).map((item) => ({
@@ -146,6 +162,12 @@ export default function AdminMobilePage() {
           communications: admissions?.communications?.total ?? 0,
           openReminders: admissions?.reminders?.open ?? 0,
           feeCollection: finance?.totalCollected ?? 0,
+          activeEmployees: hrSummary?.activeEmployees ?? 0,
+          pendingLeaveRequests: hrSummary?.pendingLeaveRequests ?? 0,
+          openRecruitment: hrSummary?.openRecruitment ?? 0,
+          pendingProcurementApproval: procurementSummary?.pendingApproval ?? 0,
+          reorderAlerts: procurementSummary?.reorderAlerts ?? 0,
+          monthlyCommittedSpend: procurementSummary?.monthlyCommittedSpend ?? 0,
           followUps,
           studentRequests: requestsPayload?.items ?? [],
           error: null
@@ -164,8 +186,10 @@ export default function AdminMobilePage() {
     { label: "Programs", value: state.programs.toString() },
     { label: "Inquiries", value: state.inquiries.toString() },
     { label: "Applications", value: state.applications.toString() },
-    { label: "Follow-Ups", value: state.communications.toString() },
-    { label: "Open Reminders", value: state.openReminders.toString() }
+    { label: "Leave Approvals", value: state.pendingLeaveRequests.toString() },
+    { label: "Recruitment", value: state.openRecruitment.toString() },
+    { label: "Procurement", value: state.pendingProcurementApproval.toString() },
+    { label: "Reorder Alerts", value: state.reorderAlerts.toString() }
   ];
 
   async function updateStudentRequestStatus(item: StudentRequestItem, status: string) {
@@ -244,7 +268,20 @@ export default function AdminMobilePage() {
           <Text style={{ color: "#f5d0fe", fontSize: 13 }}>Executive Summary</Text>
           <Text style={{ color: "#fff7ed", fontSize: 22, fontWeight: "700", marginTop: 8 }}>Fee collection {formatMoney(state.feeCollection)}</Text>
           <Text style={{ color: "#fbcfe8", marginTop: 10 }}>
-            {state.pendingDocs} applicant documents and {state.openReminders} follow-up reminders still need action before offer readiness.
+            {state.pendingDocs} applicant documents, {state.pendingLeaveRequests} HR approvals, and {state.pendingProcurementApproval} procurement approvals still need action.
+          </Text>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 220, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(125, 211, 252, 0.12)", borderWidth: 1, borderColor: "rgba(125, 211, 252, 0.18)" }}
+        >
+          <Text style={{ color: "#dbeafe", fontSize: 13 }}>HR and Procurement</Text>
+          <Text style={{ color: "#fff7ed", fontSize: 20, fontWeight: "700", marginTop: 8 }}>{state.activeEmployees} active employees | {formatMoney(state.monthlyCommittedSpend)} committed</Text>
+          <Text style={{ color: "#bfdbfe", marginTop: 10 }}>
+            Recruitment openings: {state.openRecruitment}. Reorder alerts: {state.reorderAlerts}. This mobile view now carries the same new ERP modules as the web admin surface.
           </Text>
         </AnimatedSurface>
 

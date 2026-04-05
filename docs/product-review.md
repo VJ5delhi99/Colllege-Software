@@ -34,6 +34,10 @@ The repository already had strong service coverage, but the shipped experience s
 - Added student-initiated payment-session creation so finance no longer stops at summary visibility inside the student-facing product.
 - Added student-side payment completion for local product flows so fee collection no longer stops at pending-session creation inside the web and mobile student workspaces.
 - Added admissions document upload preparation, delivery metadata, and signed download handling so the operations flow now covers actual applicant document handoff instead of only verification status.
+- Added institute-wide helpdesk ticketing so one of the clearest cross-department ERP requirements from the source document is now represented in backend workflows and in student/admin operations UI.
+- Added HR foundation inside the extracted organization boundary so employee master data, onboarding progress, leave approvals, recruitment openings, and appraisal due tracking are now live in the product.
+- Added stores and purchase foundation inside the finance boundary so vendor, requisition, purchase-order, and stock-risk signals are now operational instead of remaining only in the requirement review.
+- Expanded the admin web and mobile workspaces so HR and procurement queues sit next to admissions, catalog, identity, and finance oversight rather than remaining hidden backend capability.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
@@ -43,3 +47,4 @@ The repository already had strong service coverage, but the shipped experience s
 - Expand the mobile app beyond the current student request, teacher grading/advising, and admin follow-up actions so more transactional workflows reach parity with the web.
 - Add deeper automated coverage for the public discovery, admissions, and cross-service role workflows.
 - Finish production rollout concerns such as external SSO federation, live payment credentials, and managed secret providers.
+- Continue the PDF-driven ERP closure with governance modules such as accreditation, legal/RTI, and IRD where the repo is still thinner than the source requirement set.

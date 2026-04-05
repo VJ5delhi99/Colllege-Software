@@ -207,6 +207,64 @@ public sealed class WorkflowCoverageTests
     }
 
     [Fact]
+    public void HumanResourcesSummary_CountsOnboardingLeaveAndRecruitmentSignals()
+    {
+        var summary = HumanResourcesSummary.Create(
+            [
+                new EmployeeProfile { Status = "Active", OnboardingStatus = "Completed" },
+                new EmployeeProfile { Status = "Active", OnboardingStatus = "In Progress" }
+            ],
+            [
+                new LeaveRequest { Status = "Pending Approval" },
+                new LeaveRequest { Status = "Approved" }
+            ],
+            [
+                new RecruitmentOpening { Status = "Open" },
+                new RecruitmentOpening { Status = "Closed" }
+            ],
+            [
+                new AppraisalCycle { Status = "Self Review Submitted", DueAtUtc = DateTimeOffset.UtcNow.AddDays(3) },
+                new AppraisalCycle { Status = "Completed", DueAtUtc = DateTimeOffset.UtcNow.AddDays(-3) }
+            ]);
+
+        summary.ActiveEmployees.Should().Be(2);
+        summary.OnboardingInProgress.Should().Be(1);
+        summary.PendingLeaveRequests.Should().Be(1);
+        summary.OpenRecruitment.Should().Be(1);
+        summary.AppraisalsDueSoon.Should().Be(1);
+        summary.CompletedAppraisals.Should().Be(1);
+    }
+
+    [Fact]
+    public void ProcurementSummary_CountsPendingApprovalsAndReorderRisk()
+    {
+        var summary = ProcurementSummary.Create(
+            [
+                new VendorProfile { Status = "Active" },
+                new VendorProfile { Status = "Inactive" }
+            ],
+            [
+                new PurchaseRequisition { Status = "Pending Approval", Amount = 15000, RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) },
+                new PurchaseRequisition { Status = "Approved", Amount = 12000, RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-5) }
+            ],
+            [
+                new PurchaseOrder { Status = "Issued", Amount = 22000, IssuedAtUtc = DateTimeOffset.UtcNow.AddDays(-1) },
+                new PurchaseOrder { Status = "Delivered", Amount = 9000, IssuedAtUtc = DateTimeOffset.UtcNow.AddDays(-7) }
+            ],
+            [
+                new InventoryItem { InStockQuantity = 1, ReorderLevel = 2 },
+                new InventoryItem { InStockQuantity = 10, ReorderLevel = 4 }
+            ]);
+
+        summary.ActiveVendors.Should().Be(1);
+        summary.OpenRequisitions.Should().Be(2);
+        summary.PendingApproval.Should().Be(1);
+        summary.PurchaseOrdersOpen.Should().Be(1);
+        summary.ReorderAlerts.Should().Be(1);
+        summary.MonthlyCommittedSpend.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     public void GradeReviewSummary_CountsTeacherWorkflowStages()
     {
         var summary = GradeReviewSummary.Create(
@@ -241,6 +299,23 @@ public sealed class WorkflowCoverageTests
         summary.PendingSessions.Should().Be(1);
         summary.LatestPayment?.InvoiceNumber.Should().Be("INV-2026-002");
         summary.LatestSession?.InvoiceNumber.Should().Be("INV-2026-003");
+    }
+
+    [Fact]
+    public void HelpdeskTicketSummary_CountsOperationalQueueStates()
+    {
+        var summary = HelpdeskTicketSummary.Create(
+            [
+                new HelpdeskTicket { Status = "Open", Priority = "High" },
+                new HelpdeskTicket { Status = "In Progress", Priority = "Medium" },
+                new HelpdeskTicket { Status = "Resolved", Priority = "Low" }
+            ]);
+
+        summary.Total.Should().Be(3);
+        summary.Open.Should().Be(1);
+        summary.InProgress.Should().Be(1);
+        summary.Resolved.Should().Be(1);
+        summary.HighPriority.Should().Be(1);
     }
 
     [Fact]

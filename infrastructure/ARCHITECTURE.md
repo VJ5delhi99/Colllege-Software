@@ -15,11 +15,11 @@
 - `identity-service`: tenant-aware authentication, refresh sessions, authorization-code exchange, federated provider hooks, passwordless delivery, TOTP MFA, and permission-bearing JWT issuance
 - `authorization-service`: centralized roles, permissions, user assignments, and route policy mappings
 - `academic-service`: curriculum, courses, credit units, semester scheduling, and faculty advising-note workflows
-- `organization-service`: colleges, campuses, departments, staff directory, and public academic catalog ownership
+- `organization-service`: colleges, campuses, departments, staff directory, public academic catalog ownership, and HR foundations such as employee master, leave, recruitment, and appraisal tracking
 - `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload, teacher-scoped session control, and verification endpoints
-- `communication-service`: announcements, principal blogs, push notification orchestration, and admissions document delivery workflows
+- `communication-service`: announcements, principal blogs, push notification orchestration, admissions document delivery workflows, and institute helpdesk ticketing
 - `exam-service`: assessment publication, GPA records, and teacher grading-review progression
-- `finance-service`: payment recording, provider-aware payment sessions, student-initiated checkout session creation and local completion, HMAC webhook processing, refunds, reconciliation runs
+- `finance-service`: payment recording, provider-aware payment sessions, student-initiated checkout session creation and local completion, HMAC webhook processing, refunds, reconciliation runs, plus procurement foundations for vendors, requisitions, purchase orders, and inventory alerts
 - `ai-assistant-service`: role-aware natural-language assistant with Semantic Kernel orchestration, typed service integrations, and RAG hooks
 - `student-service`: student profiles, department mapping, academic status, enrollments, and request-fulfillment workflows
 - `hostel-service`: rooms, allocations, visitor logs
@@ -74,6 +74,9 @@ To close the most visible product gaps without creating a parallel architecture,
 - academic-service and exam-service should expose teacher-scoped advising and grading actions so faculty experiences are operational, not only observational
 - attendance-service and finance-service should expose role-scoped transactional actions so teachers can manage live attendance sessions and students can initiate their own payment journeys inside the product
 - communication-service should carry upload and delivery metadata for applicant documents so verification and final handoff live in the same admissions workflow boundary
+- communication-service currently also carries the cross-department helpdesk queue as a shared support workflow boundary until a dedicated support-service extraction is warranted
+- organization-service now also carries the first HR operating slice because the ERP requirement set needs employee workflows beyond identity-only coverage
+- finance-service now also carries the first stores and purchase slice so spend approval and inward supply risk are visible inside the existing financial control boundary
 - production-facing admin views should also surface federation and payment rollout readiness so release risk is not hidden inside appsettings only
 
 ## Near-Term Architectural Follow-Up

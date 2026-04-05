@@ -134,6 +134,28 @@ type ReminderItem = {
   notes: string;
 };
 
+type HelpdeskSummary = {
+  total: number;
+  open: number;
+  inProgress: number;
+  resolved: number;
+  highPriority: number;
+};
+
+type HelpdeskTicketItem = {
+  id: string;
+  requesterName: string;
+  requesterRole: string;
+  department: string;
+  category: string;
+  title: string;
+  priority: string;
+  status: string;
+  assignedTo: string;
+  resolutionNote?: string;
+  createdAtUtc: string;
+};
+
 async function loadOptionalJson(url: string, headers: HeadersInit, enabled: boolean) {
   if (!enabled) {
     return null;
@@ -312,6 +334,41 @@ const demoReminders: ReminderItem[] = [
   }
 ];
 
+const demoHelpdeskSummary: HelpdeskSummary = {
+  total: 2,
+  open: 1,
+  inProgress: 1,
+  resolved: 0,
+  highPriority: 1
+};
+
+const demoHelpdeskTickets: HelpdeskTicketItem[] = [
+  {
+    id: "ticket-1",
+    requesterName: "Aarav Sharma",
+    requesterRole: "Student",
+    department: "IT Department",
+    category: "Portal Access",
+    title: "Unable to access semester registration portal",
+    priority: "High",
+    status: "Open",
+    assignedTo: "Systems Desk",
+    createdAtUtc: "2026-04-05T09:00:00Z"
+  },
+  {
+    id: "ticket-2",
+    requesterName: "Prof. Meera Nair",
+    requesterRole: "Professor",
+    department: "Facility Management",
+    category: "Classroom AV",
+    title: "Projector issue in B-204",
+    priority: "Medium",
+    status: "In Progress",
+    assignedTo: "AV Support Team",
+    createdAtUtc: "2026-04-04T11:00:00Z"
+  }
+];
+
 function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
@@ -379,6 +436,8 @@ export default function OperationsPage() {
   const [documents, setDocuments] = useState<PendingDocumentItem[]>([]);
   const [communications, setCommunications] = useState<CommunicationItem[]>([]);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [helpdeskSummary, setHelpdeskSummary] = useState<HelpdeskSummary>(demoHelpdeskSummary);
+  const [helpdeskTickets, setHelpdeskTickets] = useState<HelpdeskTicketItem[]>([]);
   const [inquirySummary, setInquirySummary] = useState<InquirySummary>({ total: 0, newItems: 0, inReview: 0, latest: null });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -401,6 +460,8 @@ export default function OperationsPage() {
             setDocuments(demoDocuments);
             setCommunications(demoCommunications);
             setReminders(demoReminders);
+            setHelpdeskSummary(demoHelpdeskSummary);
+            setHelpdeskTickets(demoHelpdeskTickets);
             setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications, demoCounselingSessions, demoDocuments, demoCommunications, demoReminders));
             setError(null);
           }
@@ -418,7 +479,7 @@ export default function OperationsPage() {
         const canViewAttendance = session.permissions.includes("attendance.view");
         const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, communicationsPayload, remindersPayload, admissionsSummaryPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, communicationsPayload, remindersPayload, admissionsSummaryPayload, helpdeskSummaryPayload, helpdeskTicketsPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/inquiries?pageSize=8`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/applications?pageSize=8`, headers, canCreateAnnouncements),
@@ -427,6 +488,8 @@ export default function OperationsPage() {
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/reminders?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/summary`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/helpdesk/summary`, headers, true),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/helpdesk/tickets?pageSize=6`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.student()}/api/v1/audit-logs?pageSize=10`, headers, canManageRbac),
           loadOptionalJson(`${apiConfig.academic()}/api/v1/audit-logs?pageSize=10`, headers, canViewResults),
@@ -462,6 +525,8 @@ export default function OperationsPage() {
           setDocuments(nextDocuments);
           setCommunications(nextCommunications);
           setReminders(nextReminders);
+          setHelpdeskSummary((helpdeskSummaryPayload ?? demoHelpdeskSummary) as HelpdeskSummary);
+          setHelpdeskTickets((helpdeskTicketsPayload?.items ?? []) as HelpdeskTicketItem[]);
           setInquirySummary({
             ...computedSummary,
             ...remoteSummary,
@@ -1077,6 +1142,68 @@ export default function OperationsPage() {
     }
   }
 
+  async function updateHelpdeskStatus(item: HelpdeskTicketItem, status: string) {
+    if (demoMode) {
+      const nextTickets = helpdeskTickets.map((entry) =>
+        entry.id === item.id
+          ? {
+              ...entry,
+              status,
+              assignedTo: entry.assignedTo || "Operations Desk",
+              resolutionNote: status === "Resolved" ? "Closed from the operations hub." : entry.resolutionNote
+            }
+          : entry
+      );
+      setHelpdeskTickets(nextTickets);
+      setHelpdeskSummary({
+        total: nextTickets.length,
+        open: nextTickets.filter((entry) => entry.status === "Open").length,
+        inProgress: nextTickets.filter((entry) => entry.status === "In Progress").length,
+        resolved: nextTickets.filter((entry) => entry.status === "Resolved" || entry.status === "Closed").length,
+        highPriority: nextTickets.filter((entry) => entry.priority === "High").length
+      });
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/helpdesk/tickets/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          assignedTo: item.assignedTo || session.user.email,
+          resolutionNote: status === "Resolved" ? "Closed from the operations hub." : item.resolutionNote
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update helpdesk ticket.");
+      }
+
+      const payload = (await response.json()) as HelpdeskTicketItem;
+      const nextTickets = helpdeskTickets.map((entry) => (entry.id === item.id ? payload : entry));
+      setHelpdeskTickets(nextTickets);
+      setHelpdeskSummary({
+        total: nextTickets.length,
+        open: nextTickets.filter((entry) => entry.status === "Open").length,
+        inProgress: nextTickets.filter((entry) => entry.status === "In Progress").length,
+        resolved: nextTickets.filter((entry) => entry.status === "Resolved" || entry.status === "Closed").length,
+        highPriority: nextTickets.filter((entry) => entry.priority === "High").length
+      });
+      setError(null);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update helpdesk ticket.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
   return (
     <main className="panel-grid min-h-screen px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -1186,6 +1313,25 @@ export default function OperationsPage() {
           <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Open reminders</p>
             <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : inquirySummary.reminders?.open ?? 0}</p>
+          </article>
+        </div>
+
+        <div className="mt-6 grid gap-5 md:grid-cols-4">
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Helpdesk tickets</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : helpdeskSummary.total}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Open</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : helpdeskSummary.open}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">In progress</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : helpdeskSummary.inProgress}</p>
+          </article>
+          <article className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 backdrop-blur">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">High priority</p>
+            <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : helpdeskSummary.highPriority}</p>
           </article>
         </div>
 
@@ -1516,6 +1662,56 @@ export default function OperationsPage() {
                 ))}
 
                 {!loading && reminders.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No follow-up reminders are open yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Helpdesk</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Department support queue</h2>
+                </div>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-slate-300">
+                  {loading ? "Loading" : `${helpdeskTickets.length} items`}
+                </span>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                {helpdeskTickets.map((item) => (
+                  <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-white">{item.title}</p>
+                      <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-amber-100">
+                        {item.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{item.requesterName} | {item.requesterRole}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.department} | {item.category} | {item.priority}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-400">Assigned to: {item.assignedTo || "Unassigned"}</p>
+                    {item.resolutionNote ? <p className="mt-2 text-sm leading-6 text-emerald-200">{item.resolutionNote}</p> : null}
+                    <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.createdAtUtc)}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateHelpdeskStatus(item, "In Progress")}
+                        disabled={updatingInquiryId === item.id || item.status === "In Progress" || item.status === "Resolved"}
+                        className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Mark In Progress"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateHelpdeskStatus(item, "Resolved")}
+                        disabled={updatingInquiryId === item.id || item.status === "Resolved"}
+                        className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Resolve"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+
+                {!loading && helpdeskTickets.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No helpdesk tickets are active right now.</div> : null}
               </div>
             </section>
 

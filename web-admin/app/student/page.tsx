@@ -27,6 +27,18 @@ type ServiceRequestItem = {
   resolvedAtUtc?: string | null;
 };
 
+type HelpdeskTicketItem = {
+  id: string;
+  department: string;
+  category: string;
+  title: string;
+  priority: string;
+  status: string;
+  assignedTo: string;
+  resolutionNote?: string;
+  createdAtUtc: string;
+};
+
 type StudentState = {
   attendancePercentage: number;
   totalPublishedResults: number;
@@ -46,6 +58,7 @@ type StudentState = {
   openRequests: number;
   recentEnrollments: EnrollmentItem[];
   recentRequests: ServiceRequestItem[];
+  helpdeskTickets: HelpdeskTicketItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
 };
 
@@ -92,6 +105,18 @@ const demoState: StudentState = {
       fulfillmentReference: "CERT-2026-1004",
       requestedAtUtc: "2026-04-02T09:00:00Z",
       resolvedAtUtc: "2026-04-04T14:00:00Z"
+    }
+  ],
+  helpdeskTickets: [
+    {
+      id: "ticket-1",
+      department: "IT Department",
+      category: "Portal Access",
+      title: "Unable to access semester registration portal",
+      priority: "High",
+      status: "Open",
+      assignedTo: "Systems Desk",
+      createdAtUtc: "2026-04-05T09:00:00Z"
     }
   ],
   notifications: [
@@ -172,6 +197,8 @@ export default function StudentPage() {
         ]);
 
         const courseCodes = Array.from(new Set(((workspacePayload?.recentEnrollments ?? []) as EnrollmentItem[]).map((item) => item.courseCode)));
+        const helpdeskResponse = await fetch(`${apiConfig.communication()}/api/v1/helpdesk/requesters/${session.user.id}/tickets?pageSize=4`, { headers });
+        const helpdeskPayload = helpdeskResponse.ok ? await helpdeskResponse.json() : { items: [] };
         const lmsSummaryResponse = await fetch(
           `${apiConfig.lms()}/api/v1/workspace/summary${courseCodes.length > 0 ? `?courseCodes=${encodeURIComponent(courseCodes.join(","))}` : ""}`,
           { headers }
@@ -202,6 +229,7 @@ export default function StudentPage() {
             openRequests: workspacePayload?.openRequests ?? 0,
             recentEnrollments: (workspacePayload?.recentEnrollments ?? []) as EnrollmentItem[],
             recentRequests: (workspacePayload?.recentRequests ?? []) as ServiceRequestItem[],
+            helpdeskTickets: (helpdeskPayload?.items ?? []) as HelpdeskTicketItem[],
             notifications: notificationsPayload?.items ?? []
           });
           setError(null);
@@ -280,6 +308,67 @@ export default function StudentPage() {
       setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to submit the request.");
+    } finally {
+      setRequesting(null);
+    }
+  }
+
+  async function submitSupportTicket() {
+    setRequesting("Support Ticket");
+
+    try {
+      if (demoMode) {
+        const nextTicket: HelpdeskTicketItem = {
+          id: `ticket-${Date.now()}`,
+          department: "IT Department",
+          category: "Portal Access",
+          title: "Need help with student portal access",
+          priority: "High",
+          status: "Open",
+          assignedTo: "Systems Desk",
+          createdAtUtc: new Date().toISOString()
+        };
+        setState((current) => ({
+          ...current,
+          helpdeskTickets: [nextTicket, ...current.helpdeskTickets].slice(0, 4)
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/helpdesk/tickets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          requesterId: session.user.id,
+          requesterName: session.user.email,
+          requesterRole: session.user.role,
+          department: "IT Department",
+          category: "Portal Access",
+          title: "Need help with student portal access",
+          description: "Raising a support ticket from the student self-service workspace.",
+          priority: "High"
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Unable to submit the support ticket.");
+      }
+
+      const payload = (await response.json()) as HelpdeskTicketItem;
+      setState((current) => ({
+        ...current,
+        helpdeskTickets: [payload, ...current.helpdeskTickets].slice(0, 4)
+      }));
+      setError(null);
+    } catch (ticketError) {
+      setError(ticketError instanceof Error ? ticketError.message : "Unable to submit the support ticket.");
     } finally {
       setRequesting(null);
     }
@@ -579,6 +668,41 @@ export default function StudentPage() {
                 </article>
               ))}
               {!loading && state.notifications.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No notifications are available yet.</div> : null}
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6">
+          <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Helpdesk</p>
+                <h2 className="mt-3 text-2xl font-semibold text-white">Department support ticketing from the self-service portal</h2>
+              </div>
+              <button
+                type="button"
+                onClick={submitSupportTicket}
+                disabled={requesting !== null}
+                className="rounded-full border border-amber-300/20 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 disabled:opacity-60"
+              >
+                {requesting === "Support Ticket" ? "Submitting..." : "Raise IT Ticket"}
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {state.helpdeskTickets.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.department} | {item.category} | {item.priority}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">Assigned to: {item.assignedTo || "Unassigned"}</p>
+                  {item.resolutionNote ? <p className="mt-2 text-sm leading-6 text-emerald-200">{item.resolutionNote}</p> : null}
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.createdAtUtc)}</p>
+                </article>
+              ))}
+              {!loading && state.helpdeskTickets.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No support tickets have been raised yet.</div> : null}
             </div>
           </article>
         </section>

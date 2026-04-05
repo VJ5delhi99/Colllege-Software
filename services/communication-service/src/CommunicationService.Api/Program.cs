@@ -198,6 +198,144 @@ app.MapGet("/api/v1/notifications", async (HttpContext httpContext, Communicatio
     return Results.Ok(new { items, page, pageSize, total });
 }).RequireRoles("Student", "Professor", "Principal", "Admin", "FinanceStaff", "DepartmentHead");
 
+app.MapGet("/api/v1/helpdesk/summary", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var tickets = await dbContext.HelpdeskTickets.Where(x => x.TenantId == tenantId).ToListAsync();
+    return Results.Ok(HelpdeskTicketSummary.Create(tickets));
+}).RequireRoles("Principal", "Admin", "DepartmentHead", "FinanceStaff");
+
+app.MapGet("/api/v1/helpdesk/tickets", async (HttpContext httpContext, CommunicationDbContext dbContext, string? status, string? department, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    page = Math.Max(page, 1);
+    pageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.HelpdeskTickets.Where(x => x.TenantId == tenantId);
+
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        query = query.Where(x => x.Status == status);
+    }
+
+    if (!string.IsNullOrWhiteSpace(department))
+    {
+        query = query.Where(x => x.Department == department);
+    }
+
+    var total = await query.CountAsync();
+    var items = await query.OrderByDescending(x => x.CreatedAtUtc).Skip((page - 1) * pageSize).Take(pageSize).ToListAsync();
+    return Results.Ok(new { items, page, pageSize, total });
+}).RequireRoles("Principal", "Admin", "DepartmentHead", "FinanceStaff");
+
+app.MapGet("/api/v1/helpdesk/requesters/{requesterId:guid}/tickets", async (Guid requesterId, HttpContext httpContext, CommunicationDbContext dbContext, int pageSize = 10) =>
+{
+    if (!CanAccessOwnOperationalRecord(httpContext, requesterId, "Principal", "Admin", "DepartmentHead", "FinanceStaff"))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.HelpdeskTickets
+        .Where(x => x.TenantId == tenantId && x.RequesterId == requesterId)
+        .OrderByDescending(x => x.CreatedAtUtc)
+        .Take(Math.Clamp(pageSize, 1, 20))
+        .ToListAsync();
+
+    return Results.Ok(new { items, total = items.Count });
+}).RequireRoles("Student", "Professor", "Principal", "Admin", "FinanceStaff", "DepartmentHead");
+
+app.MapPost("/api/v1/helpdesk/tickets", async (HttpContext httpContext, [FromBody] CreateHelpdeskTicketRequest request, CommunicationDbContext dbContext) =>
+{
+    httpContext.EnsureTenantAccess(request.TenantId);
+    if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Description) || string.IsNullOrWhiteSpace(request.Department))
+    {
+        return Results.BadRequest(new { message = "Department, title, and description are required." });
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var requesterId = request.RequesterId ?? ResolveCurrentUserId(httpContext) ?? Guid.NewGuid();
+    var requesterRole = httpContext.User.FindFirst("role")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+        ?? request.RequesterRole
+        ?? "User";
+    var ticket = new HelpdeskTicket
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        RequesterId = requesterId,
+        RequesterName = request.RequesterName?.Trim() ?? httpContext.User.Identity?.Name ?? "Portal User",
+        RequesterRole = requesterRole,
+        Department = request.Department.Trim(),
+        Category = request.Category?.Trim() ?? "General Support",
+        Title = request.Title.Trim(),
+        Description = request.Description.Trim(),
+        Priority = string.IsNullOrWhiteSpace(request.Priority) ? "Medium" : request.Priority.Trim(),
+        Status = "Open",
+        AssignedTo = string.Empty,
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        UpdatedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    dbContext.HelpdeskTickets.Add(ticket);
+    dbContext.Notifications.Add(new Notification
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Title = $"New helpdesk ticket for {ticket.Department}",
+        Message = $"{ticket.Title} | {ticket.Priority}",
+        Audience = "Admin",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        Source = "helpdesk"
+    });
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "helpdesk.ticket.created",
+        EntityId = ticket.Id.ToString(),
+        Actor = ticket.RequesterName,
+        Details = $"{ticket.Department} | {ticket.Title}",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/helpdesk/tickets/{ticket.Id}", ticket);
+}).RequireRoles("Student", "Professor", "Principal", "Admin", "FinanceStaff", "DepartmentHead");
+
+app.MapPost("/api/v1/helpdesk/tickets/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateHelpdeskTicketStatusRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var ticket = await dbContext.HelpdeskTickets.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (ticket is null)
+    {
+        return Results.NotFound();
+    }
+
+    ticket.Status = request.Status.Trim();
+    ticket.AssignedTo = request.AssignedTo?.Trim() ?? ticket.AssignedTo;
+    ticket.ResolutionNote = request.ResolutionNote?.Trim() ?? ticket.ResolutionNote;
+    ticket.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    ticket.ResolvedAtUtc =
+        string.Equals(ticket.Status, "Resolved", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(ticket.Status, "Closed", StringComparison.OrdinalIgnoreCase)
+            ? DateTimeOffset.UtcNow
+            : ticket.ResolvedAtUtc;
+
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "helpdesk.ticket.status-updated",
+        EntityId = ticket.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{ticket.Title} moved to {ticket.Status}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(ticket);
+}).RequireRoles("Principal", "Admin", "DepartmentHead", "FinanceStaff");
+
 app.MapGet("/api/v1/admissions/inquiries", async (HttpContext httpContext, CommunicationDbContext dbContext, string? status, int page = 1, int pageSize = 20) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -626,6 +764,66 @@ app.MapGet("/api/v1/admissions/communications", async (HttpContext httpContext, 
     return Results.Ok(new { items, page, pageSize, total });
 }).RequirePermissions("announcements.create");
 
+app.MapGet("/api/v1/admissions/templates", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.AdmissionJourneyTemplates
+        .Where(x => x.TenantId == tenantId)
+        .OrderBy(x => x.SortOrder)
+        .ThenBy(x => x.TemplateName)
+        .ToListAsync();
+    return Results.Ok(new { items, total = items.Count });
+}).RequirePermissions("announcements.create");
+
+app.MapGet("/api/v1/admissions/counselor-workloads", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == tenantId).ToListAsync();
+    var counselingSessions = await dbContext.CounselingSessions.Where(x => x.TenantId == tenantId).ToListAsync();
+    return Results.Ok(AdmissionsCounselorWorkloadSummary.Create(applications, counselingSessions, DateTimeOffset.UtcNow));
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/outreach/run", async (HttpContext httpContext, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == tenantId).ToListAsync();
+    var documents = await dbContext.ApplicationDocuments.Where(x => x.TenantId == tenantId).ToListAsync();
+    var communications = await dbContext.AdmissionCommunications.Where(x => x.TenantId == tenantId).ToListAsync();
+    var reminders = await dbContext.AdmissionReminders.Where(x => x.TenantId == tenantId).ToListAsync();
+    var counselingSessions = await dbContext.CounselingSessions.Where(x => x.TenantId == tenantId).ToListAsync();
+    var templates = await dbContext.AdmissionJourneyTemplates.Where(x => x.TenantId == tenantId && x.IsActive).OrderBy(x => x.SortOrder).ToListAsync();
+
+    var run = AdmissionsOutreachEngine.Run(tenantId, applications, documents, communications, reminders, counselingSessions, templates, DateTimeOffset.UtcNow);
+    if (run.CreatedCommunications.Count > 0)
+    {
+        dbContext.AdmissionCommunications.AddRange(run.CreatedCommunications);
+    }
+
+    if (run.CreatedNotifications.Count > 0)
+    {
+        dbContext.Notifications.AddRange(run.CreatedNotifications);
+    }
+
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.outreach.executed",
+        EntityId = Guid.NewGuid().ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "automation",
+        Details = $"Outreach created {run.CreatedCommunications.Count} communications and reassigned {run.RebalancedApplications} applications.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(new
+    {
+        createdCommunications = run.CreatedCommunications.Count,
+        rebalancedApplications = run.RebalancedApplications,
+        counselorWorkloads = run.CounselorWorkloads
+    });
+}).RequirePermissions("announcements.create");
+
 app.MapPost("/api/v1/admissions/reminders", async (HttpContext httpContext, [FromBody] CreateAdmissionReminderRequest request, CommunicationDbContext dbContext) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -927,6 +1125,28 @@ static string SanitizeAdmissionsFileName(string fileName)
     return string.IsNullOrWhiteSpace(sanitized) ? "document.bin" : sanitized.Replace(' ', '-');
 }
 
+static Guid? ResolveCurrentUserId(HttpContext httpContext)
+{
+    var raw = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.User.FindFirst("sub")?.Value;
+    return Guid.TryParse(raw, out var parsed) ? parsed : null;
+}
+
+static bool CanAccessOwnOperationalRecord(HttpContext httpContext, Guid requestedUserId, params string[] elevatedRoles)
+{
+    var role = httpContext.User.FindFirst("role")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value
+        ?? string.Empty;
+
+    if (elevatedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
+    {
+        return true;
+    }
+
+    var currentUserId = ResolveCurrentUserId(httpContext);
+    return currentUserId.HasValue && currentUserId.Value == requestedUserId;
+}
+
 static async Task SeedCommunicationDataAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
@@ -1175,6 +1395,47 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
         }
     }
 
+    if (!await dbContext.HelpdeskTickets.AnyAsync())
+    {
+        dbContext.HelpdeskTickets.AddRange(
+        [
+            new HelpdeskTicket
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                RequesterId = Guid.Parse("00000000-0000-0000-0000-000000000123"),
+                RequesterName = "Aarav Sharma",
+                RequesterRole = "Student",
+                Department = "IT Department",
+                Category = "Portal Access",
+                Title = "Unable to access semester registration portal",
+                Description = "The portal shows an authorization error during registration submission.",
+                Priority = "High",
+                Status = "Open",
+                AssignedTo = "Systems Desk",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-8),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-6)
+            },
+            new HelpdeskTicket
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                RequesterId = Guid.Parse("00000000-0000-0000-0000-000000000456"),
+                RequesterName = "Prof. Meera Nair",
+                RequesterRole = "Professor",
+                Department = "Facility Management",
+                Category = "Classroom AV",
+                Title = "Projector issue in B-204",
+                Description = "The classroom projector is intermittently disconnecting during lectures.",
+                Priority = "Medium",
+                Status = "In Progress",
+                AssignedTo = "AV Support Team",
+                CreatedAtUtc = DateTimeOffset.UtcNow.AddHours(-12),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-2)
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -1192,6 +1453,8 @@ public sealed record CreateAdmissionReminderRequest(Guid ApplicationId, string R
 public sealed record UpdateAdmissionReminderStatusRequest(string Status, string? Notes);
 public sealed record AdmissionDocumentUploadRequest(string FileName, string ContentType);
 public sealed record DeliverApplicationDocumentRequest(string? DeliveryChannel, string? Notes);
+public sealed record CreateHelpdeskTicketRequest(string TenantId, Guid? RequesterId, string? RequesterName, string? RequesterRole, string Department, string? Category, string Title, string Description, string? Priority);
+public sealed record UpdateHelpdeskTicketStatusRequest(string Status, string? AssignedTo, string? ResolutionNote);
 
 public sealed class Announcement
 {
@@ -1327,6 +1590,26 @@ public sealed class AdmissionReminder
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
+public sealed class HelpdeskTicket
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid RequesterId { get; set; }
+    public string RequesterName { get; set; } = string.Empty;
+    public string RequesterRole { get; set; } = string.Empty;
+    public string Department { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string Priority { get; set; } = "Medium";
+    public string Status { get; set; } = "Open";
+    public string AssignedTo { get; set; } = string.Empty;
+    public string ResolutionNote { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public DateTimeOffset? ResolvedAtUtc { get; set; }
+}
+
 public sealed class AuditLogEntry
 {
     public Guid Id { get; set; }
@@ -1349,6 +1632,7 @@ public sealed class CommunicationDbContext(DbContextOptions<CommunicationDbConte
     public DbSet<ApplicationDocument> ApplicationDocuments => Set<ApplicationDocument>();
     public DbSet<AdmissionCommunication> AdmissionCommunications => Set<AdmissionCommunication>();
     public DbSet<AdmissionReminder> AdmissionReminders => Set<AdmissionReminder>();
+    public DbSet<HelpdeskTicket> HelpdeskTickets => Set<HelpdeskTicket>();
     public DbSet<AuditLogEntry> AuditLogs => Set<AuditLogEntry>();
 }
 
@@ -1414,6 +1698,17 @@ public sealed record AdmissionsCounselingMetrics(int Total, int Scheduled, int C
 public sealed record AdmissionsDocumentMetrics(int Total, int Pending, int Verified);
 public sealed record AdmissionsCommunicationMetrics(int Total, int Email, int Sms, int Sent);
 public sealed record AdmissionsReminderMetrics(int Total, int Open, int Completed);
+public sealed record HelpdeskTicketSummary(int Total, int Open, int InProgress, int Resolved, int HighPriority)
+{
+    public static HelpdeskTicketSummary Create(IReadOnlyCollection<HelpdeskTicket> tickets) =>
+        new(
+            tickets.Count,
+            tickets.Count(x => string.Equals(x.Status, "Open", StringComparison.OrdinalIgnoreCase)),
+            tickets.Count(x => string.Equals(x.Status, "In Progress", StringComparison.OrdinalIgnoreCase)),
+            tickets.Count(x => string.Equals(x.Status, "Resolved", StringComparison.OrdinalIgnoreCase) || string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase)),
+            tickets.Count(x => string.Equals(x.Priority, "High", StringComparison.OrdinalIgnoreCase)));
+}
+
 public sealed record AdmissionsAutomationMetrics(int StaleApplications, int OverdueReminders, int PendingDocumentFollowUps, int EscalationsOpen)
 {
     public static AdmissionsAutomationMetrics Create(
