@@ -259,8 +259,11 @@ app.MapGet("/api/v1/governance/summary", async (HttpContext httpContext, Organiz
     var accreditationItems = await dbContext.AccreditationInitiatives.Where(x => x.TenantId == tenantId).ToListAsync();
     var legalCases = await dbContext.LegalCases.Where(x => x.TenantId == tenantId).ToListAsync();
     var incubationStartups = await dbContext.IncubationStartups.Where(x => x.TenantId == tenantId).ToListAsync();
+    var estateContracts = await dbContext.EstateContracts.Where(x => x.TenantId == tenantId).ToListAsync();
+    var planningInitiatives = await dbContext.PlanningInitiatives.Where(x => x.TenantId == tenantId).ToListAsync();
+    var resourceCampaigns = await dbContext.ResourceCampaigns.Where(x => x.TenantId == tenantId).ToListAsync();
 
-    return Results.Ok(GovernanceOperationsSummary.Create(workOrders, researchProjects, accreditationItems, legalCases, incubationStartups));
+    return Results.Ok(GovernanceOperationsSummary.Create(workOrders, researchProjects, accreditationItems, legalCases, incubationStartups, estateContracts, planningInitiatives, resourceCampaigns));
 }).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
 
 app.MapGet("/api/v1/facility/work-orders", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
@@ -394,6 +397,87 @@ app.MapPost("/api/v1/incubation/startups/{id:guid}/status", async (Guid id, Http
 
     item.Status = request.Status;
     item.MentorName = string.IsNullOrWhiteSpace(request.MentorName) ? item.MentorName : request.MentorName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/estate/contracts", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.EstateContracts.Where(x => x.TenantId == tenantId).OrderBy(x => x.RenewalDueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/estate/contracts/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateEstateContractStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.EstateContracts.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/planning/initiatives", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.PlanningInitiatives.Where(x => x.TenantId == tenantId).OrderBy(x => x.DueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/planning/initiatives/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdatePlanningInitiativeStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.PlanningInitiatives.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/resource-generation/campaigns", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.ResourceCampaigns.Where(x => x.TenantId == tenantId).OrderBy(x => x.ReviewDueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/resource-generation/campaigns/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateResourceCampaignStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.ResourceCampaigns.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
     item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
     await dbContext.SaveChangesAsync();
     return Results.Ok(item);
@@ -1030,6 +1114,109 @@ static async Task SeedOrganizationDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.EstateContracts.AnyAsync())
+    {
+        dbContext.EstateContracts.AddRange(
+        [
+            new EstateContract
+            {
+                Id = Guid.Parse("49000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                CampusId = northCampusId,
+                ContractType = "Annual Maintenance Contract",
+                Title = "North Campus HVAC AMC",
+                Status = "Renewal Review",
+                VendorName = "ThermoServe Engineering",
+                OwnerName = "Campus Engineering",
+                RenewalDueAtUtc = DateTimeOffset.UtcNow.AddDays(14),
+                ValueAmount = 1850000m,
+                Note = "Commercial renewal pending finance concurrence."
+            },
+            new EstateContract
+            {
+                Id = Guid.Parse("49000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                CampusId = heritageCampusId,
+                ContractType = "Security Service Contract",
+                Title = "Library access systems support contract",
+                Status = "Active",
+                VendorName = "SecureEdge Systems",
+                OwnerName = "Security Office",
+                RenewalDueAtUtc = DateTimeOffset.UtcNow.AddDays(38),
+                ValueAmount = 620000m,
+                Note = "Performance review scheduled next month."
+            }
+        ]);
+    }
+
+    if (!await dbContext.PlanningInitiatives.AnyAsync())
+    {
+        dbContext.PlanningInitiatives.AddRange(
+        [
+            new CampusPlanningInitiative
+            {
+                Id = Guid.Parse("50000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                CampusId = northCampusId,
+                InitiativeName = "Engineering block capacity expansion",
+                Category = "Capital Planning",
+                Status = "Board Review",
+                OwnerName = "Registrar Office",
+                MilestoneName = "Final concept approval",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(12),
+                BudgetAmount = 14500000m,
+                Note = "Updated seat-capacity model attached for board discussion."
+            },
+            new CampusPlanningInitiative
+            {
+                Id = Guid.Parse("50000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                CampusId = healthCampusId,
+                InitiativeName = "Clinical simulation suite refresh",
+                Category = "Academic Infrastructure",
+                Status = "Execution Planning",
+                OwnerName = "Academic Planning Cell",
+                MilestoneName = "Vendor shortlist and phasing plan",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(19),
+                BudgetAmount = 4200000m,
+                Note = "Phased rollout to avoid semester disruption."
+            }
+        ]);
+    }
+
+    if (!await dbContext.ResourceCampaigns.AnyAsync())
+    {
+        dbContext.ResourceCampaigns.AddRange(
+        [
+            new ResourceGenerationCampaign
+            {
+                Id = Guid.Parse("51000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                CampaignName = "Industry chair endowment drive",
+                SourceType = "Corporate CSR",
+                Status = "Prospect Outreach",
+                OwnerName = "Development Office",
+                TargetAmount = 30000000m,
+                SecuredAmount = 8500000m,
+                ReviewDueAtUtc = DateTimeOffset.UtcNow.AddDays(9),
+                Note = "Three anchor meetings are lined up with partner firms."
+            },
+            new ResourceGenerationCampaign
+            {
+                Id = Guid.Parse("51000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                CampaignName = "Alumni scholarship fund 2026",
+                SourceType = "Alumni Giving",
+                Status = "Active",
+                OwnerName = "Alumni Office",
+                TargetAmount = 12000000m,
+                SecuredAmount = 6400000m,
+                ReviewDueAtUtc = DateTimeOffset.UtcNow.AddDays(16),
+                Note = "Regional chapter outreach is underway."
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -1081,7 +1268,10 @@ public static class GovernanceOperationsSummary
         IReadOnlyCollection<ResearchProject> researchProjects,
         IReadOnlyCollection<AccreditationInitiative> accreditationItems,
         IReadOnlyCollection<LegalCaseItem> legalCases,
-        IReadOnlyCollection<IncubationStartup> incubationStartups)
+        IReadOnlyCollection<IncubationStartup> incubationStartups,
+        IReadOnlyCollection<EstateContract> estateContracts,
+        IReadOnlyCollection<CampusPlanningInitiative> planningInitiatives,
+        IReadOnlyCollection<ResourceGenerationCampaign> resourceCampaigns)
     {
         var openWorkOrders = workOrders.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Completed", StringComparison.OrdinalIgnoreCase));
         var amcExpiring = workOrders.Count(x => x.AmcStatus.Contains("Expiring", StringComparison.OrdinalIgnoreCase));
@@ -1090,8 +1280,11 @@ public static class GovernanceOperationsSummary
             + accreditationItems.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && x.DueAtUtc <= DateTimeOffset.UtcNow.AddDays(14));
         var openRtiCases = legalCases.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Disposed", StringComparison.OrdinalIgnoreCase));
         var activeIncubations = incubationStartups.Count(x => !string.Equals(x.Status, "Graduated", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase));
+        var contractRenewalsDue = estateContracts.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && x.RenewalDueAtUtc <= DateTimeOffset.UtcNow.AddDays(30));
+        var planningMilestonesDue = planningInitiatives.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && x.DueAtUtc <= DateTimeOffset.UtcNow.AddDays(21));
+        var activeResourceCampaigns = resourceCampaigns.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Completed", StringComparison.OrdinalIgnoreCase));
 
-        return new GovernanceOperationsSnapshot(openWorkOrders, amcExpiring, activeProjects, complianceDeadlines, openRtiCases, activeIncubations);
+        return new GovernanceOperationsSnapshot(openWorkOrders, amcExpiring, activeProjects, complianceDeadlines, openRtiCases, activeIncubations, contractRenewalsDue, planningMilestonesDue, activeResourceCampaigns);
     }
 }
 
@@ -1119,7 +1312,10 @@ public sealed record GovernanceOperationsSnapshot(
     int ActiveProjects,
     int ComplianceDeadlines,
     int OpenRtiCases,
-    int ActiveIncubations);
+    int ActiveIncubations,
+    int ContractRenewalsDue,
+    int PlanningMilestonesDue,
+    int ActiveResourceCampaigns);
 
 public sealed record UpdateLeaveRequestStatusRequest(string Status, string? ApproverName, string? Comment);
 
@@ -1134,6 +1330,12 @@ public sealed record UpdateAccreditationInitiativeStatusRequest(string Status, s
 public sealed record UpdateLegalCaseStatusRequest(string Status, string? OwnerName, string? Note);
 
 public sealed record UpdateIncubationStartupStatusRequest(string Status, string? MentorName, string? Note);
+
+public sealed record UpdateEstateContractStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdatePlanningInitiativeStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdateResourceCampaignStatusRequest(string Status, string? OwnerName, string? Note);
 
 public sealed class CollegeProfile
 {
@@ -1318,6 +1520,50 @@ public sealed class IncubationStartup
     public string Note { get; set; } = string.Empty;
 }
 
+public sealed class EstateContract
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid CampusId { get; set; }
+    public string ContractType { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = "Active";
+    public string VendorName { get; set; } = string.Empty;
+    public string OwnerName { get; set; } = string.Empty;
+    public DateTimeOffset RenewalDueAtUtc { get; set; }
+    public decimal ValueAmount { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class CampusPlanningInitiative
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid CampusId { get; set; }
+    public string InitiativeName { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string Status { get; set; } = "Planned";
+    public string OwnerName { get; set; } = string.Empty;
+    public string MilestoneName { get; set; } = string.Empty;
+    public DateTimeOffset DueAtUtc { get; set; }
+    public decimal BudgetAmount { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class ResourceGenerationCampaign
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string CampaignName { get; set; } = string.Empty;
+    public string SourceType { get; set; } = string.Empty;
+    public string Status { get; set; } = "Active";
+    public string OwnerName { get; set; } = string.Empty;
+    public decimal TargetAmount { get; set; }
+    public decimal SecuredAmount { get; set; }
+    public DateTimeOffset ReviewDueAtUtc { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
 public sealed class AcademicProgramProfile
 {
     public Guid Id { get; set; }
@@ -1351,4 +1597,7 @@ public sealed class OrganizationDbContext(DbContextOptions<OrganizationDbContext
     public DbSet<AccreditationInitiative> AccreditationInitiatives => Set<AccreditationInitiative>();
     public DbSet<LegalCaseItem> LegalCases => Set<LegalCaseItem>();
     public DbSet<IncubationStartup> IncubationStartups => Set<IncubationStartup>();
+    public DbSet<EstateContract> EstateContracts => Set<EstateContract>();
+    public DbSet<CampusPlanningInitiative> PlanningInitiatives => Set<CampusPlanningInitiative>();
+    public DbSet<ResourceGenerationCampaign> ResourceCampaigns => Set<ResourceGenerationCampaign>();
 }

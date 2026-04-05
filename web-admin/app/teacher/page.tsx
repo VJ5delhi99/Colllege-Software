@@ -104,6 +104,42 @@ type CoursePlanItem = {
   approvedAtUtc?: string | null;
 };
 
+type TimetableChangeItem = {
+  id: string;
+  courseCode: string;
+  currentSlot: string;
+  proposedSlot: string;
+  reason: string;
+  status: string;
+  reviewNote: string;
+  requestedAtUtc: string;
+  reviewedAtUtc?: string | null;
+};
+
+type MentoringAssignmentItem = {
+  id: string;
+  studentName: string;
+  batch: string;
+  supportArea: string;
+  riskLevel: string;
+  status: string;
+  nextMeetingAtUtc: string;
+  lastContactAtUtc?: string | null;
+};
+
+type ExamBoardItem = {
+  id: string;
+  courseCode: string;
+  assessmentName: string;
+  boardName: string;
+  panelLead: string;
+  status: string;
+  boardNote: string;
+  dueAtUtc: string;
+  updatedAtUtc: string;
+  releasedAtUtc?: string | null;
+};
+
 type TeacherState = {
   attendancePercentage: number;
   totalCourses: number;
@@ -114,6 +150,9 @@ type TeacherState = {
   coursePlansAwaitingApproval: number;
   approvedCoursePlans: number;
   adviseeFollowUpsOpen: number;
+  pendingTimetableChanges: number;
+  mentoringStudents: number;
+  mentoringAlerts: number;
   activeSessions: number;
   lowAttendanceCourses: number;
   lmsMaterials: number;
@@ -130,6 +169,9 @@ type TeacherState = {
   officeHours: OfficeHourItem[];
   classCoverRequests: ClassCoverRequestItem[];
   coursePlans: CoursePlanItem[];
+  timetableChanges: TimetableChangeItem[];
+  mentoringRoster: MentoringAssignmentItem[];
+  examBoardItems: ExamBoardItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
 };
 
@@ -143,6 +185,9 @@ const demoState: TeacherState = {
   coursePlansAwaitingApproval: 1,
   approvedCoursePlans: 1,
   adviseeFollowUpsOpen: 1,
+  pendingTimetableChanges: 1,
+  mentoringStudents: 2,
+  mentoringAlerts: 1,
   activeSessions: 1,
   lowAttendanceCourses: 1,
   lmsMaterials: 2,
@@ -190,6 +235,18 @@ const demoState: TeacherState = {
     { id: "plan-1", courseCode: "CSE401", title: "Unit 3 distributed storage plan", coverage: "Replication patterns, leader election, and operational trade-offs.", status: "Submitted", reviewNote: "Waiting for department review.", updatedAtUtc: "2026-04-03T10:00:00Z", submittedAtUtc: "2026-04-03T10:00:00Z" },
     { id: "plan-2", courseCode: "PHY201", title: "Lab cycle moderation plan", coverage: "Attendance recovery support, practical demonstration flow, and quiz alignment.", status: "Approved", reviewNote: "Approved for this cycle.", updatedAtUtc: "2026-04-02T10:00:00Z", submittedAtUtc: "2026-04-01T10:00:00Z", approvedAtUtc: "2026-04-02T11:00:00Z" }
   ],
+  timetableChanges: [
+    { id: "time-1", courseCode: "CSE401", currentSlot: "Monday 02:00 PM | B-204", proposedSlot: "Friday 09:00 AM | B-204", reason: "Department review meeting overlaps with the current slot.", status: "Pending", reviewNote: "", requestedAtUtc: "2026-04-04T10:00:00Z" },
+    { id: "time-2", courseCode: "PHY201", currentSlot: "Tuesday 10:00 AM | Lab-2", proposedSlot: "Wednesday 12:30 PM | Lab-2", reason: "Lab maintenance window for the current slot.", status: "Approved", reviewNote: "Shift approved after lab coordination.", requestedAtUtc: "2026-04-01T10:00:00Z", reviewedAtUtc: "2026-04-02T09:00:00Z" }
+  ],
+  mentoringRoster: [
+    { id: "mentor-1", studentName: "Aarav Sharma", batch: "2022", supportArea: "Attendance recovery", riskLevel: "High", status: "Meeting Scheduled", nextMeetingAtUtc: "2026-04-06T09:00:00Z", lastContactAtUtc: "2026-04-03T09:00:00Z" },
+    { id: "mentor-2", studentName: "Riya Menon", batch: "2023", supportArea: "Exam confidence and planning", riskLevel: "Medium", status: "Support Plan Active", nextMeetingAtUtc: "2026-04-08T09:00:00Z", lastContactAtUtc: "2026-04-04T09:00:00Z" }
+  ],
+  examBoardItems: [
+    { id: "board-1", courseCode: "CSE401", assessmentName: "Midterm Internal Board Packet", boardName: "Mid Semester Review Board", panelLead: "Dr. Priya Menon", status: "Board Review", boardNote: "Waiting for final moderation sign-off.", dueAtUtc: "2026-04-07T09:00:00Z", updatedAtUtc: "2026-04-05T09:00:00Z" },
+    { id: "board-2", courseCode: "PHY201", assessmentName: "Internal Quiz 2 Release Pack", boardName: "Assessment Release Board", panelLead: "Dr. Rohan Iyer", status: "Ready To Release", boardNote: "Board checks complete. Ready for final release.", dueAtUtc: "2026-04-06T09:00:00Z", updatedAtUtc: "2026-04-05T12:00:00Z" }
+  ],
   notifications: [
     {
       id: "teacher-note-1",
@@ -222,6 +279,23 @@ function getAdministrationCounts(classCoverRequests: ClassCoverRequestItem[], co
   };
 }
 
+function getExtendedAdministrationCounts(
+  classCoverRequests: ClassCoverRequestItem[],
+  coursePlans: CoursePlanItem[],
+  officeHours: OfficeHourItem[],
+  advisingNotes: AdvisingNoteItem[],
+  timetableChanges: TimetableChangeItem[],
+  mentoringRoster: MentoringAssignmentItem[]
+) {
+  const base = getAdministrationCounts(classCoverRequests, coursePlans, officeHours, advisingNotes);
+  return {
+    ...base,
+    pendingTimetableChanges: timetableChanges.filter((item) => item.status === "Pending").length,
+    mentoringStudents: mentoringRoster.length,
+    mentoringAlerts: mentoringRoster.filter((item) => item.riskLevel === "High" || item.status === "Needs Attention").length
+  };
+}
+
 export default function TeacherPage() {
   const [state, setState] = useState<TeacherState>(demoState);
   const [loading, setLoading] = useState(true);
@@ -251,7 +325,7 @@ export default function TeacherPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse, officeHoursResponse, classCoverResponse, coursePlansResponse] = await Promise.all([
+        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse, officeHoursResponse, classCoverResponse, coursePlansResponse, timetableResponse, mentoringResponse, examBoardResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
@@ -263,14 +337,17 @@ export default function TeacherPage() {
           fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/office-hours`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/substitution-requests`, { headers }),
-          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/course-plans`, { headers })
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/course-plans`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/timetable-change-requests`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/mentoring-roster`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/exam-board`, { headers })
         ]);
 
-        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok || !officeHoursResponse.ok || !classCoverResponse.ok || !coursePlansResponse.ok) {
+        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok || !officeHoursResponse.ok || !classCoverResponse.ok || !coursePlansResponse.ok || !timetableResponse.ok || !mentoringResponse.ok || !examBoardResponse.ok) {
           throw new Error("Unable to load the teacher page.");
         }
 
-        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload, sessionsPayload, draftsPayload, publishingPayload, officeHoursPayload, classCoverPayload, coursePlansPayload] = await Promise.all([
+        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload, sessionsPayload, draftsPayload, publishingPayload, officeHoursPayload, classCoverPayload, coursePlansPayload, timetablePayload, mentoringPayload, examBoardPayload] = await Promise.all([
           teacherSummaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
@@ -282,7 +359,10 @@ export default function TeacherPage() {
           publishingResponse.json(),
           officeHoursResponse.json(),
           classCoverResponse.json(),
-          coursePlansResponse.json()
+          coursePlansResponse.json(),
+          timetableResponse.json(),
+          mentoringResponse.json(),
+          examBoardResponse.json()
         ]);
 
         const ownedCourses = (coursesPayload?.items ?? []) as CourseItem[];
@@ -304,6 +384,9 @@ export default function TeacherPage() {
             coursePlansAwaitingApproval: teacherSummaryPayload?.coursePlansAwaitingApproval ?? 0,
             approvedCoursePlans: teacherSummaryPayload?.approvedCoursePlans ?? 0,
             adviseeFollowUpsOpen: teacherSummaryPayload?.adviseeFollowUpsOpen ?? 0,
+            pendingTimetableChanges: teacherSummaryPayload?.pendingTimetableChanges ?? 0,
+            mentoringStudents: teacherSummaryPayload?.mentoringStudents ?? 0,
+            mentoringAlerts: teacherSummaryPayload?.mentoringAlerts ?? 0,
             activeSessions: attendancePayload?.activeSessions ?? 0,
             lowAttendanceCourses: attendancePayload?.lowAttendanceCourses ?? 0,
             lmsMaterials: lmsSummaryPayload?.materials ?? 0,
@@ -320,6 +403,9 @@ export default function TeacherPage() {
             officeHours: (officeHoursPayload?.items ?? []) as OfficeHourItem[],
             classCoverRequests: (classCoverPayload?.items ?? []) as ClassCoverRequestItem[],
             coursePlans: (coursePlansPayload?.items ?? []) as CoursePlanItem[],
+            timetableChanges: (timetablePayload?.items ?? []) as TimetableChangeItem[],
+            mentoringRoster: (mentoringPayload?.items ?? []) as MentoringAssignmentItem[],
+            examBoardItems: (examBoardPayload?.items ?? []) as ExamBoardItem[],
             notifications: notificationsPayload?.items ?? []
           });
           setError(null);
@@ -1013,6 +1099,226 @@ export default function TeacherPage() {
     }
   }
 
+  async function createTimetableChange(courseCode: string, currentSlot: string, proposedSlot: string, reason: string) {
+    setBusyId(`timetable-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const nextItem: TimetableChangeItem = {
+          id: `timetable-${Date.now()}`,
+          courseCode,
+          currentSlot,
+          proposedSlot,
+          reason,
+          status: "Pending",
+          reviewNote: "",
+          requestedAtUtc: new Date().toISOString()
+        };
+        const nextChanges = [nextItem, ...state.timetableChanges].slice(0, 4);
+        const counts = getExtendedAdministrationCounts(state.classCoverRequests, state.coursePlans, state.officeHours, state.advisingNotes, nextChanges, state.mentoringRoster);
+        setState((current) => ({
+          ...current,
+          timetableChanges: nextChanges,
+          pendingTimetableChanges: counts.pendingTimetableChanges
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/timetable-change-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          currentSlot,
+          proposedSlot,
+          reason,
+          status: "Pending"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save timetable request.");
+      }
+
+      const payload = (await response.json()) as TimetableChangeItem;
+      setState((current) => {
+        const nextChanges = [payload, ...current.timetableChanges].slice(0, 4);
+        const counts = getExtendedAdministrationCounts(current.classCoverRequests, current.coursePlans, current.officeHours, current.advisingNotes, nextChanges, current.mentoringRoster);
+        return {
+          ...current,
+          timetableChanges: nextChanges,
+          pendingTimetableChanges: counts.pendingTimetableChanges
+        };
+      });
+      setError(null);
+    } catch (timetableError) {
+      setError(timetableError instanceof Error ? timetableError.message : "Unable to save timetable request.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateTimetableChange(item: TimetableChangeItem, status: string, reviewNote: string) {
+    setBusyId(`timetable-status-${item.id}`);
+
+    try {
+      if (demoMode) {
+        const nextChanges = state.timetableChanges.map((entry) =>
+          entry.id === item.id ? { ...entry, status, reviewNote, reviewedAtUtc: new Date().toISOString() } : entry
+        );
+        const counts = getExtendedAdministrationCounts(state.classCoverRequests, state.coursePlans, state.officeHours, state.advisingNotes, nextChanges, state.mentoringRoster);
+        setState((current) => ({
+          ...current,
+          timetableChanges: nextChanges,
+          pendingTimetableChanges: counts.pendingTimetableChanges
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/timetable-change-requests/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          reviewNote
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update timetable request.");
+      }
+
+      const payload = (await response.json()) as TimetableChangeItem;
+      setState((current) => {
+        const nextChanges = current.timetableChanges.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry));
+        const counts = getExtendedAdministrationCounts(current.classCoverRequests, current.coursePlans, current.officeHours, current.advisingNotes, nextChanges, current.mentoringRoster);
+        return {
+          ...current,
+          timetableChanges: nextChanges,
+          pendingTimetableChanges: counts.pendingTimetableChanges
+        };
+      });
+      setError(null);
+    } catch (timetableError) {
+      setError(timetableError instanceof Error ? timetableError.message : "Unable to update timetable request.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateMentoringAssignment(item: MentoringAssignmentItem, status: string, supportArea: string) {
+    setBusyId(`mentoring-${item.id}`);
+
+    try {
+      if (demoMode) {
+        const nextRoster = state.mentoringRoster.map((entry) =>
+          entry.id === item.id ? { ...entry, status, supportArea, lastContactAtUtc: new Date().toISOString() } : entry
+        );
+        const counts = getExtendedAdministrationCounts(state.classCoverRequests, state.coursePlans, state.officeHours, state.advisingNotes, state.timetableChanges, nextRoster);
+        setState((current) => ({
+          ...current,
+          mentoringRoster: nextRoster,
+          mentoringStudents: counts.mentoringStudents,
+          mentoringAlerts: counts.mentoringAlerts
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/mentoring-roster/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          supportArea,
+          nextMeetingAtUtc: new Date(Date.now() + 3 * 86400000).toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update mentoring record.");
+      }
+
+      const payload = (await response.json()) as MentoringAssignmentItem;
+      setState((current) => {
+        const nextRoster = current.mentoringRoster.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry));
+        const counts = getExtendedAdministrationCounts(current.classCoverRequests, current.coursePlans, current.officeHours, current.advisingNotes, current.timetableChanges, nextRoster);
+        return {
+          ...current,
+          mentoringRoster: nextRoster,
+          mentoringStudents: counts.mentoringStudents,
+          mentoringAlerts: counts.mentoringAlerts
+        };
+      });
+      setError(null);
+    } catch (mentoringError) {
+      setError(mentoringError instanceof Error ? mentoringError.message : "Unable to update mentoring record.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateExamBoardItem(item: ExamBoardItem, status: string, boardNote: string) {
+    setBusyId(`board-${item.id}`);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          examBoardItems: current.examBoardItems.map((entry) =>
+            entry.id === item.id ? { ...entry, status, boardNote, updatedAtUtc: new Date().toISOString() } : entry
+          )
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/exam-board/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          boardNote,
+          panelLead: item.panelLead
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update exam board item.");
+      }
+
+      const payload = (await response.json()) as ExamBoardItem;
+      setState((current) => ({
+        ...current,
+        examBoardItems: current.examBoardItems.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry))
+      }));
+      setError(null);
+    } catch (examBoardError) {
+      setError(examBoardError instanceof Error ? examBoardError.message : "Unable to update exam board item.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <main className="panel-grid min-h-screen px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -1211,6 +1517,14 @@ export default function TeacherPage() {
                 <p className="text-sm text-slate-400">Open student follow-ups</p>
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.adviseeFollowUpsOpen}</p>
               </div>
+              <div className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Mentoring roster</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.mentoringStudents}</p>
+              </div>
+              <div className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Mentoring alerts</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.mentoringAlerts}</p>
+              </div>
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
               <button
@@ -1229,6 +1543,14 @@ export default function TeacherPage() {
               >
                 {busyId === "office-PHY201" ? "Saving..." : "Add Physics Office Hour"}
               </button>
+              <button
+                type="button"
+                onClick={() => createTimetableChange("CSE401", "Monday 02:00 PM | B-204", "Friday 09:00 AM | B-204", "Department review meeting overlaps with the current slot.")}
+                disabled={busyId === "timetable-CSE401"}
+                className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-fuchsia-100 disabled:opacity-50"
+              >
+                {busyId === "timetable-CSE401" ? "Saving..." : "Request Timetable Shift"}
+              </button>
             </div>
             <div className="mt-5 space-y-4">
               {state.officeHours.map((item) => (
@@ -1239,6 +1561,37 @@ export default function TeacherPage() {
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-300">{item.dayOfWeek} | {item.startTime} - {item.endTime}</p>
                   <p className="mt-2 text-sm leading-6 text-slate-400">{item.location} | {item.deliveryMode}</p>
+                </article>
+              ))}
+            </div>
+            <div className="mt-6 space-y-4">
+              {state.mentoringRoster.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.studentName}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.riskLevel}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.batch} | {item.status}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.supportArea}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">Next meeting {formatTimestamp(item.nextMeetingAtUtc)}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateMentoringAssignment(item, "Support Plan Active", item.supportArea)}
+                      disabled={busyId === `mentoring-${item.id}` || item.status === "Support Plan Active"}
+                      className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                    >
+                      {busyId === `mentoring-${item.id}` ? "Updating..." : "Start Support Plan"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateMentoringAssignment(item, "Meeting Scheduled", `${item.supportArea} | Follow-up booked`)}
+                      disabled={busyId === `mentoring-${item.id}` || item.status === "Meeting Scheduled"}
+                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                    >
+                      {busyId === `mentoring-${item.id}` ? "Updating..." : "Book Follow-Up"}
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>
@@ -1259,6 +1612,10 @@ export default function TeacherPage() {
               <div className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
                 <p className="text-sm text-slate-400">Plans waiting for approval</p>
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.coursePlansAwaitingApproval}</p>
+              </div>
+              <div className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                <p className="text-sm text-slate-400">Timetable requests</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.pendingTimetableChanges}</p>
               </div>
             </div>
             <div className="mt-5 flex flex-wrap gap-2">
@@ -1311,6 +1668,36 @@ export default function TeacherPage() {
               ))}
             </div>
             <div className="mt-6 space-y-4">
+              {state.timetableChanges.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.courseCode}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.currentSlot}</p>
+                  <p className="mt-2 text-sm leading-6 text-cyan-100/90">{item.proposedSlot}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.reason}</p>
+                  {item.reviewNote ? <p className="mt-2 text-sm leading-6 text-amber-100/90">{item.reviewNote}</p> : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateTimetableChange(item, "Approved", "Shift approved after department timetable review.")}
+                      disabled={busyId === `timetable-status-${item.id}` || item.status === "Approved"}
+                      className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                    >
+                      {busyId === `timetable-status-${item.id}` ? "Updating..." : "Approve Shift"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateTimetableChange(item, "Review", "Need room desk confirmation before approval.")}
+                      disabled={busyId === `timetable-status-${item.id}` || item.status === "Review"}
+                      className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-white disabled:opacity-50"
+                    >
+                      {busyId === `timetable-status-${item.id}` ? "Updating..." : "Hold For Review"}
+                    </button>
+                  </div>
+                </article>
+              ))}
               {state.coursePlans.map((item) => (
                 <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
@@ -1407,6 +1794,37 @@ export default function TeacherPage() {
                       className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
                     >
                       {busyId === `publish-${item.id}` ? "Updating..." : "Publish Packet"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="mt-6 space-y-4">
+              {state.examBoardItems.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.assessmentName}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.courseCode} | {item.boardName}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.boardNote}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-fuchsia-200">Panel lead {item.panelLead} | due {formatTimestamp(item.dueAtUtc)}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateExamBoardItem(item, "Ready To Release", "Moderation pack accepted by the board.")}
+                      disabled={busyId === `board-${item.id}` || item.status === "Ready To Release" || item.status === "Released"}
+                      className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-fuchsia-100 disabled:opacity-50"
+                    >
+                      {busyId === `board-${item.id}` ? "Updating..." : "Ready To Release"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateExamBoardItem(item, "Released", "Released after board approval.")}
+                      disabled={busyId === `board-${item.id}` || item.status === "Released"}
+                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                    >
+                      {busyId === `board-${item.id}` ? "Updating..." : "Release"}
                     </button>
                   </div>
                 </article>

@@ -15,6 +15,10 @@ type ResearchProjectItem = { id: string; title: string; departmentName: string; 
 type AccreditationInitiativeItem = { id: string; frameworkName: string; cycleName: string; status: string; ownerName: string; evidenceCount: number; dueAtUtc: string };
 type LegalCaseItem = { id: string; caseType: string; title: string; status: string; ownerName: string; forumName: string; dueAtUtc: string; riskLevel: string };
 type IncubationStartupItem = { id: string; cohortName: string; startupName: string; status: string; mentorName: string; fundingStage: string; reviewDueAtUtc: string };
+type EstateContractItem = { id: string; contractType: string; title: string; status: string; vendorName: string; ownerName: string; renewalDueAtUtc: string; valueAmount: number };
+type PlanningInitiativeItem = { id: string; initiativeName: string; category: string; status: string; ownerName: string; milestoneName: string; dueAtUtc: string; budgetAmount: number };
+type ResourceCampaignItem = { id: string; campaignName: string; sourceType: string; status: string; ownerName: string; targetAmount: number; securedAmount: number; reviewDueAtUtc: string };
+type ExamBoardItem = { id: string; courseCode: string; assessmentName: string; boardName: string; panelLead: string; status: string; boardNote: string; dueAtUtc: string; updatedAtUtc: string };
 
 type AdminState = {
   userCount: number;
@@ -47,6 +51,12 @@ type AdminState = {
   complianceDeadlines: number;
   openLegalCases: number;
   activeIncubations: number;
+  contractRenewalsDue: number;
+  planningMilestonesDue: number;
+  activeResourceCampaigns: number;
+  examBoardReview: number;
+  examBoardReady: number;
+  examBoardDueSoon: number;
   leaveRequests: HrLeaveItem[];
   recruitmentOpenings: RecruitmentOpeningItem[];
   procurementRequisitions: ProcurementRequisitionItem[];
@@ -56,6 +66,10 @@ type AdminState = {
   accreditationItems: AccreditationInitiativeItem[];
   legalCases: LegalCaseItem[];
   incubationStartups: IncubationStartupItem[];
+  estateContracts: EstateContractItem[];
+  planningInitiatives: PlanningInitiativeItem[];
+  resourceCampaigns: ResourceCampaignItem[];
+  examBoardItems: ExamBoardItem[];
 };
 
 const now = Date.now();
@@ -90,6 +104,12 @@ const demoState: AdminState = {
   complianceDeadlines: 3,
   openLegalCases: 2,
   activeIncubations: 2,
+  contractRenewalsDue: 1,
+  planningMilestonesDue: 1,
+  activeResourceCampaigns: 2,
+  examBoardReview: 1,
+  examBoardReady: 1,
+  examBoardDueSoon: 2,
   leaveRequests: [
     { id: "leave-1", employeeName: "Rhea Kapoor", leaveType: "Conference Leave", status: "Pending Approval", approverName: "Dr. Priya Menon", startDateUtc: new Date(now + 6 * 86400000).toISOString(), endDateUtc: new Date(now + 8 * 86400000).toISOString() },
     { id: "leave-2", employeeName: "Farah Thomas", leaveType: "Casual Leave", status: "Approved", approverName: "Rahul George", startDateUtc: new Date(now + 2 * 86400000).toISOString(), endDateUtc: new Date(now + 3 * 86400000).toISOString() }
@@ -124,6 +144,22 @@ const demoState: AdminState = {
   incubationStartups: [
     { id: "inc-1", cohortName: "Spring 2026", startupName: "CircuitNest", status: "Mentoring", mentorName: "Prof. Rohan Iyer", fundingStage: "Prototype Grant", reviewDueAtUtc: new Date(now + 6 * 86400000).toISOString() },
     { id: "inc-2", cohortName: "Spring 2026", startupName: "BioWeave Labs", status: "Compliance Review", mentorName: "Dr. Asha Varma", fundingStage: "Seed Readiness", reviewDueAtUtc: new Date(now + 11 * 86400000).toISOString() }
+  ],
+  estateContracts: [
+    { id: "contract-1", contractType: "Annual Maintenance Contract", title: "North Campus HVAC AMC", status: "Renewal Review", vendorName: "ThermoServe Engineering", ownerName: "Campus Engineering", renewalDueAtUtc: new Date(now + 14 * 86400000).toISOString(), valueAmount: 1850000 },
+    { id: "contract-2", contractType: "Security Service Contract", title: "Library access systems support contract", status: "Active", vendorName: "SecureEdge Systems", ownerName: "Security Office", renewalDueAtUtc: new Date(now + 38 * 86400000).toISOString(), valueAmount: 620000 }
+  ],
+  planningInitiatives: [
+    { id: "plan-ops-1", initiativeName: "Engineering block capacity expansion", category: "Capital Planning", status: "Board Review", ownerName: "Registrar Office", milestoneName: "Final concept approval", dueAtUtc: new Date(now + 12 * 86400000).toISOString(), budgetAmount: 14500000 },
+    { id: "plan-ops-2", initiativeName: "Clinical simulation suite refresh", category: "Academic Infrastructure", status: "Execution Planning", ownerName: "Academic Planning Cell", milestoneName: "Vendor shortlist and phasing plan", dueAtUtc: new Date(now + 19 * 86400000).toISOString(), budgetAmount: 4200000 }
+  ],
+  resourceCampaigns: [
+    { id: "campaign-1", campaignName: "Industry chair endowment drive", sourceType: "Corporate CSR", status: "Prospect Outreach", ownerName: "Development Office", targetAmount: 30000000, securedAmount: 8500000, reviewDueAtUtc: new Date(now + 9 * 86400000).toISOString() },
+    { id: "campaign-2", campaignName: "Alumni scholarship fund 2026", sourceType: "Alumni Giving", status: "Active", ownerName: "Alumni Office", targetAmount: 12000000, securedAmount: 6400000, reviewDueAtUtc: new Date(now + 16 * 86400000).toISOString() }
+  ],
+  examBoardItems: [
+    { id: "board-1", courseCode: "CSE401", assessmentName: "Midterm Internal Board Packet", boardName: "Mid Semester Review Board", panelLead: "Dr. Priya Menon", status: "Board Review", boardNote: "Waiting for final moderation sign-off.", dueAtUtc: new Date(now + 2 * 86400000).toISOString(), updatedAtUtc: new Date(now - 4 * 3600000).toISOString() },
+    { id: "board-2", courseCode: "PHY201", assessmentName: "Internal Quiz 2 Release Pack", boardName: "Assessment Release Board", panelLead: "Dr. Rohan Iyer", status: "Ready To Release", boardNote: "Board checks complete. Ready for final release.", dueAtUtc: new Date(now + 1 * 86400000).toISOString(), updatedAtUtc: new Date(now - 2 * 3600000).toISOString() }
   ]
 };
 
@@ -175,14 +211,19 @@ export default function AdminPage() {
           fetch(`${apiConfig.organization()}/api/v1/ird/projects?pageSize=4`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/accreditation/initiatives?pageSize=4`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/legal/cases?pageSize=4`, { headers }),
-          fetch(`${apiConfig.organization()}/api/v1/incubation/startups?pageSize=4`, { headers })
+          fetch(`${apiConfig.organization()}/api/v1/incubation/startups?pageSize=4`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/estate/contracts?pageSize=4`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/planning/initiatives?pageSize=4`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/resource-generation/campaigns?pageSize=4`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/exam-board/summary`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/exam-board/items?pageSize=4`, { headers })
         ]);
 
         if (responses.some((response) => !response.ok)) {
           throw new Error("Unable to load the admin workspace.");
         }
 
-        const [users, finance, payment, comms, audit, federation, catalog, admissions, requests, hr, leaves, openings, procurement, requisitions, orders, governance, workOrders, researchProjects, accreditation, legalCases, incubation] = await Promise.all(responses.map((response) => response.json()));
+        const [users, finance, payment, comms, audit, federation, catalog, admissions, requests, hr, leaves, openings, procurement, requisitions, orders, governance, workOrders, researchProjects, accreditation, legalCases, incubation, estateContracts, planningInitiatives, resourceCampaigns, examBoardSummary, examBoardItems] = await Promise.all(responses.map((response) => response.json()));
         if (!cancelled) {
           setState({
             userCount: Array.isArray(users) ? users.length : 0,
@@ -215,6 +256,12 @@ export default function AdminPage() {
             complianceDeadlines: governance?.complianceDeadlines ?? 0,
             openLegalCases: governance?.openRtiCases ?? 0,
             activeIncubations: governance?.activeIncubations ?? 0,
+            contractRenewalsDue: governance?.contractRenewalsDue ?? 0,
+            planningMilestonesDue: governance?.planningMilestonesDue ?? 0,
+            activeResourceCampaigns: governance?.activeResourceCampaigns ?? 0,
+            examBoardReview: examBoardSummary?.boardReview ?? 0,
+            examBoardReady: examBoardSummary?.readyToRelease ?? 0,
+            examBoardDueSoon: examBoardSummary?.dueSoon ?? 0,
             leaveRequests: leaves?.items ?? [],
             recruitmentOpenings: openings?.items ?? [],
             procurementRequisitions: requisitions?.items ?? [],
@@ -223,7 +270,11 @@ export default function AdminPage() {
             researchProjects: researchProjects?.items ?? [],
             accreditationItems: accreditation?.items ?? [],
             legalCases: legalCases?.items ?? [],
-            incubationStartups: incubation?.items ?? []
+            incubationStartups: incubation?.items ?? [],
+            estateContracts: estateContracts?.items ?? [],
+            planningInitiatives: planningInitiatives?.items ?? [],
+            resourceCampaigns: resourceCampaigns?.items ?? [],
+            examBoardItems: examBoardItems?.items ?? []
           });
           setError(null);
           setLoading(false);
@@ -322,7 +373,9 @@ export default function AdminPage() {
             ["Admissions automation", loading ? "..." : `${state.staleAdmissions} stale | ${state.overdueReminders} overdue`, "Aging applications and reminder queues stay visible."],
             ["Facility operations", loading ? "..." : `${state.openWorkOrders} open | ${state.amcExpiring} AMC`, "Campus operations, utilities, and vendor upkeep now surface here."],
             ["Governance deadlines", loading ? "..." : `${state.complianceDeadlines} due | ${state.openLegalCases} legal`, "Accreditation, RTI, and compliance work is now visible in the admin layer."],
-            ["Incubation and IRD", loading ? "..." : `${state.activeResearchProjects} projects | ${state.activeIncubations} ventures`, "Research delivery and startup mentoring no longer sit outside the ERP surface."]
+            ["Incubation and IRD", loading ? "..." : `${state.activeResearchProjects} projects | ${state.activeIncubations} ventures`, "Research delivery and startup mentoring no longer sit outside the ERP surface."],
+            ["Estate and planning", loading ? "..." : `${state.contractRenewalsDue} renewals | ${state.planningMilestonesDue} milestones`, "Contracts and campus planning now sit inside the governance layer."],
+            ["Exam board queue", loading ? "..." : `${state.examBoardReview} review | ${state.examBoardReady} ready`, "Assessment moderation and release control now sit with academic governance."]
           ].map(([label, value, note]) => (
             <article key={label as string} className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5">
               <p className="text-xs uppercase tracking-[0.24em] text-slate-400">{label}</p>
@@ -460,6 +513,93 @@ export default function AdminPage() {
                   <div className="mt-3 flex gap-2">
                     <button type="button" onClick={() => mutate(`startup-${item.id}`, `${apiConfig.organization()}/api/v1/incubation/startups/${item.id}/status`, { status: "Investor Readiness", mentorName: item.mentorName, note: "Moved to investor readiness." }, () => setState((current) => ({ ...current, incubationStartups: current.incubationStartups.map((entry) => entry.id === item.id ? { ...entry, status: "Investor Readiness" } : entry) })), (payload) => setState((current) => ({ ...current, incubationStartups: current.incubationStartups.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `startup-${item.id}` || item.status === "Investor Readiness"} className="rounded-full bg-violet-400/20 px-3 py-2 text-xs font-semibold text-violet-100 disabled:opacity-50">Advance</button>
                     <button type="button" onClick={() => mutate(`startup-graduate-${item.id}`, `${apiConfig.organization()}/api/v1/incubation/startups/${item.id}/status`, { status: "Graduated", mentorName: item.mentorName, note: "Graduated from cohort." }, () => setState((current) => ({ ...current, activeIncubations: Math.max(0, current.activeIncubations - 1), incubationStartups: current.incubationStartups.map((entry) => entry.id === item.id ? { ...entry, status: "Graduated" } : entry) })), (payload) => setState((current) => ({ ...current, activeIncubations: Math.max(0, current.activeIncubations - 1), incubationStartups: current.incubationStartups.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `startup-graduate-${item.id}` || item.status === "Graduated"} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Graduate</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6 grid gap-5 md:grid-cols-2">
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(7,17,31,0.82)] p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Estate contracts</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : `${state.contractRenewalsDue} renewals due`}</h2>
+            <p className="mt-3 text-sm text-fuchsia-100/90">{loading ? "..." : "Vendor-backed campus contracts and renewal risks now sit beside the rest of governance work."}</p>
+            <div className="mt-5 space-y-3">
+              {state.estateContracts.map((item) => (
+                <div key={item.id} className="rounded-[1rem] border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-white">{item.title}</p>
+                  <p className="mt-1 text-sm text-fuchsia-100/90">{item.contractType} | {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-400">{item.vendorName} | {money(item.valueAmount)} | renewal {dateLabel(item.renewalDueAtUtc)}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => mutate(`contract-${item.id}`, `${apiConfig.organization()}/api/v1/estate/contracts/${item.id}/status`, { status: "Renewal Review", ownerName: item.ownerName, note: "Commercial renewal review started." }, () => setState((current) => ({ ...current, estateContracts: current.estateContracts.map((entry) => entry.id === item.id ? { ...entry, status: "Renewal Review" } : entry) })), (payload) => setState((current) => ({ ...current, estateContracts: current.estateContracts.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `contract-${item.id}` || item.status === "Renewal Review"} className="rounded-full bg-amber-300/20 px-3 py-2 text-xs font-semibold text-amber-50 disabled:opacity-50">Review Renewal</button>
+                    <button type="button" onClick={() => mutate(`contract-active-${item.id}`, `${apiConfig.organization()}/api/v1/estate/contracts/${item.id}/status`, { status: "Active", ownerName: item.ownerName, note: "Renewal confirmed from admin workspace." }, () => setState((current) => ({ ...current, contractRenewalsDue: Math.max(0, current.contractRenewalsDue - (item.status === "Renewal Review" ? 1 : 0)), estateContracts: current.estateContracts.map((entry) => entry.id === item.id ? { ...entry, status: "Active" } : entry) })), (payload) => setState((current) => ({ ...current, contractRenewalsDue: Math.max(0, current.contractRenewalsDue - (item.status === "Renewal Review" ? 1 : 0)), estateContracts: current.estateContracts.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `contract-active-${item.id}` || item.status === "Active"} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Mark Active</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(7,17,31,0.82)] p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Planning and resource generation</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : `${state.planningMilestonesDue} milestones | ${state.activeResourceCampaigns} campaigns`}</h2>
+            <p className="mt-3 text-sm text-fuchsia-100/90">{loading ? "..." : "Capital planning and funding campaigns now travel in the same admin operating surface."}</p>
+            <div className="mt-5 space-y-3">
+              {state.planningInitiatives.map((item) => (
+                <div key={item.id} className="rounded-[1rem] border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-white">{item.initiativeName}</p>
+                  <p className="mt-1 text-sm text-fuchsia-100/90">{item.category} | {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-400">{item.milestoneName} | {money(item.budgetAmount)} | due {dateLabel(item.dueAtUtc)}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => mutate(`planning-${item.id}`, `${apiConfig.organization()}/api/v1/planning/initiatives/${item.id}/status`, { status: "Board Review", ownerName: item.ownerName, note: "Moved to board review from admin workspace." }, () => setState((current) => ({ ...current, planningInitiatives: current.planningInitiatives.map((entry) => entry.id === item.id ? { ...entry, status: "Board Review" } : entry) })), (payload) => setState((current) => ({ ...current, planningInitiatives: current.planningInitiatives.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `planning-${item.id}` || item.status === "Board Review"} className="rounded-full bg-sky-400/20 px-3 py-2 text-xs font-semibold text-sky-100 disabled:opacity-50">Send Review</button>
+                    <button type="button" onClick={() => mutate(`planning-close-${item.id}`, `${apiConfig.organization()}/api/v1/planning/initiatives/${item.id}/status`, { status: "Closed", ownerName: item.ownerName, note: "Milestone closed from admin workspace." }, () => setState((current) => ({ ...current, planningMilestonesDue: Math.max(0, current.planningMilestonesDue - 1), planningInitiatives: current.planningInitiatives.map((entry) => entry.id === item.id ? { ...entry, status: "Closed" } : entry) })), (payload) => setState((current) => ({ ...current, planningMilestonesDue: Math.max(0, current.planningMilestonesDue - 1), planningInitiatives: current.planningInitiatives.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `planning-close-${item.id}` || item.status === "Closed"} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Close</button>
+                  </div>
+                </div>
+              ))}
+              {state.resourceCampaigns.map((item) => (
+                <div key={item.id} className="rounded-[1rem] border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-white">{item.campaignName}</p>
+                  <p className="mt-1 text-sm text-fuchsia-100/90">{item.sourceType} | {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-400">{money(item.securedAmount)} secured of {money(item.targetAmount)} | review {dateLabel(item.reviewDueAtUtc)}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => mutate(`campaign-${item.id}`, `${apiConfig.organization()}/api/v1/resource-generation/campaigns/${item.id}/status`, { status: "Active", ownerName: item.ownerName, note: "Campaign pushed into active outreach." }, () => setState((current) => ({ ...current, resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, status: "Active" } : entry) })), (payload) => setState((current) => ({ ...current, resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `campaign-${item.id}` || item.status === "Active"} className="rounded-full bg-emerald-400/20 px-3 py-2 text-xs font-semibold text-emerald-100 disabled:opacity-50">Activate</button>
+                    <button type="button" onClick={() => mutate(`campaign-close-${item.id}`, `${apiConfig.organization()}/api/v1/resource-generation/campaigns/${item.id}/status`, { status: "Closed", ownerName: item.ownerName, note: "Campaign closed from admin workspace." }, () => setState((current) => ({ ...current, activeResourceCampaigns: Math.max(0, current.activeResourceCampaigns - 1), resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, status: "Closed" } : entry) })), (payload) => setState((current) => ({ ...current, activeResourceCampaigns: Math.max(0, current.activeResourceCampaigns - 1), resourceCampaigns: current.resourceCampaigns.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} disabled={updating === `campaign-close-${item.id}` || item.status === "Closed"} className="rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Close</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="mt-6">
+          <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(7,17,31,0.82)] p-6">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-400">Exam board and release</p>
+            <h2 className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : `${state.examBoardReview} in review | ${state.examBoardReady} ready to release`}</h2>
+            <p className="mt-3 text-sm text-fuchsia-100/90">{loading ? "..." : `${state.examBoardDueSoon} board items due soon across the current release cycle`}</p>
+            <div className="mt-5 space-y-3">
+              {state.examBoardItems.map((item) => (
+                <div key={item.id} className="rounded-[1rem] border border-white/10 bg-white/5 p-4">
+                  <p className="font-semibold text-white">{item.assessmentName}</p>
+                  <p className="mt-1 text-sm text-fuchsia-100/90">{item.courseCode} | {item.status}</p>
+                  <p className="mt-1 text-xs text-slate-400">{item.boardName} | {item.panelLead} | due {dateLabel(item.dueAtUtc)}</p>
+                  <p className="mt-2 text-sm text-slate-300">{item.boardNote}</p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => mutate(`board-${item.id}`, `${apiConfig.exam()}/api/v1/exam-board/items/${item.id}/status`, { status: "Ready To Release", boardNote: "Moderation pack cleared by the board.", panelLead: item.panelLead }, () => setState((current) => ({ ...current, examBoardReview: Math.max(0, current.examBoardReview - (item.status === "Board Review" ? 1 : 0)), examBoardReady: current.examBoardReady + (item.status === "Ready To Release" ? 0 : 1), examBoardItems: current.examBoardItems.map((entry) => entry.id === item.id ? { ...entry, status: "Ready To Release", boardNote: "Moderation pack cleared by the board." } : entry) })), (payload) => setState((current) => ({ ...current, examBoardItems: current.examBoardItems.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} 
+                      disabled={updating === `board-${item.id}` || item.status === "Ready To Release" || item.status === "Released"}
+                      className="rounded-full bg-fuchsia-400/20 px-3 py-2 text-xs font-semibold text-fuchsia-100 disabled:opacity-50"
+                    >
+                      Ready To Release
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => mutate(`board-release-${item.id}`, `${apiConfig.exam()}/api/v1/exam-board/items/${item.id}/status`, { status: "Released", boardNote: "Released from admin governance view.", panelLead: item.panelLead }, () => setState((current) => ({ ...current, examBoardReview: Math.max(0, current.examBoardReview - (item.status === "Board Review" ? 1 : 0)), examBoardReady: Math.max(0, current.examBoardReady - (item.status === "Ready To Release" ? 1 : 0)), examBoardItems: current.examBoardItems.map((entry) => entry.id === item.id ? { ...entry, status: "Released", boardNote: "Released from admin governance view." } : entry) })), (payload) => setState((current) => ({ ...current, examBoardItems: current.examBoardItems.map((entry) => entry.id === item.id ? { ...entry, ...payload } : entry) })))} 
+                      disabled={updating === `board-release-${item.id}` || item.status === "Released"}
+                      className="rounded-full bg-cyan-400/20 px-3 py-2 text-xs font-semibold text-cyan-100 disabled:opacity-50"
+                    >
+                      Release
+                    </button>
                   </div>
                 </div>
               ))}

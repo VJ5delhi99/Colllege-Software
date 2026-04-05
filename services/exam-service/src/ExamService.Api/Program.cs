@@ -124,6 +124,22 @@ app.MapGet("/api/v1/teachers/{teacherId:guid}/publishing-queue", async (Guid tea
     return Results.Ok(new { items, total = items.Count });
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/exam-board", async (Guid teacherId, HttpContext httpContext, ExamDbContext dbContext) =>
+{
+    if (!CanAccessTeacherWorkspace(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.ExamBoardItems
+        .Where(x => x.TenantId == tenantId && x.TeacherId == teacherId)
+        .OrderBy(x => x.DueAtUtc)
+        .ThenByDescending(x => x.UpdatedAtUtc)
+        .ToListAsync();
+    return Results.Ok(new { items, total = items.Count });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapPost("/api/v1/teachers/{teacherId:guid}/publishing-queue/{id:guid}/status", async (Guid teacherId, Guid id, HttpContext httpContext, [FromBody] UpdateAssessmentPublicationStatusRequest request, ExamDbContext dbContext) =>
 {
     if (!CanAccessTeacherWorkspace(httpContext, teacherId))
@@ -144,6 +160,31 @@ app.MapPost("/api/v1/teachers/{teacherId:guid}/publishing-queue/{id:guid}/status
     item.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
     dbContext.AuditLogs.Add(ExamAuditLog.Create(tenantId, "exam.assessment-publication.status-updated", item.Id.ToString(), httpContext.User.Identity?.Name ?? "exam-service", $"{item.CourseCode}:{item.AssessmentName}:{item.Status}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/exam-board/{id:guid}/status", async (Guid teacherId, Guid id, HttpContext httpContext, [FromBody] UpdateExamBoardItemStatusRequest request, ExamDbContext dbContext) =>
+{
+    if (!CanAccessTeacherWorkspace(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.ExamBoardItems.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId && x.TeacherId == teacherId);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status.Trim();
+    item.BoardNote = request.BoardNote?.Trim() ?? item.BoardNote;
+    item.PanelLead = request.PanelLead?.Trim() ?? item.PanelLead;
+    item.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    item.ReleasedAtUtc = string.Equals(item.Status, "Released", StringComparison.OrdinalIgnoreCase) ? DateTimeOffset.UtcNow : item.ReleasedAtUtc;
+
+    dbContext.AuditLogs.Add(ExamAuditLog.Create(tenantId, "exam.exam-board.status-updated", item.Id.ToString(), httpContext.User.Identity?.Name ?? "exam-service", $"{item.CourseCode}:{item.AssessmentName}:{item.Status}"));
     await dbContext.SaveChangesAsync();
     return Results.Ok(item);
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
@@ -170,6 +211,44 @@ app.MapPost("/api/v1/teachers/{teacherId:guid}/grade-reviews/{id:guid}/status", 
     await dbContext.SaveChangesAsync();
     return Results.Ok(review);
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapGet("/api/v1/exam-board/summary", async (HttpContext httpContext, ExamDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.ExamBoardItems.Where(x => x.TenantId == tenantId).ToListAsync();
+    return Results.Ok(ExamBoardSummary.Create(items));
+}).RequireRoles("Principal", "Admin", "DepartmentHead");
+
+app.MapGet("/api/v1/exam-board/items", async (HttpContext httpContext, ExamDbContext dbContext, int page = 1, int pageSize = 20) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 100);
+    var query = dbContext.ExamBoardItems.Where(x => x.TenantId == tenantId).OrderBy(x => x.DueAtUtc).ThenByDescending(x => x.UpdatedAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { items, page = safePage, pageSize = safePageSize, total });
+}).RequireRoles("Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/exam-board/items/{id:guid}/status", async (Guid id, HttpContext httpContext, [FromBody] UpdateExamBoardItemStatusRequest request, ExamDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.ExamBoardItems.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status.Trim();
+    item.BoardNote = request.BoardNote?.Trim() ?? item.BoardNote;
+    item.PanelLead = request.PanelLead?.Trim() ?? item.PanelLead;
+    item.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    item.ReleasedAtUtc = string.Equals(item.Status, "Released", StringComparison.OrdinalIgnoreCase) ? DateTimeOffset.UtcNow : item.ReleasedAtUtc;
+
+    dbContext.AuditLogs.Add(ExamAuditLog.Create(tenantId, "exam.exam-board.admin-status-updated", item.Id.ToString(), httpContext.User.Identity?.Name ?? "exam-service", $"{item.CourseCode}:{item.AssessmentName}:{item.Status}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Principal", "Admin", "DepartmentHead");
 
 app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, ExamDbContext dbContext, int page = 1, int pageSize = 20) =>
 {
@@ -278,6 +357,41 @@ static async Task SeedExamDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.ExamBoardItems.AnyAsync())
+    {
+        dbContext.ExamBoardItems.AddRange(
+        [
+            new ExamBoardItem
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                CourseCode = "CSE401",
+                AssessmentName = "Midterm Internal Board Packet",
+                BoardName = "Mid Semester Review Board",
+                PanelLead = "Dr. Priya Menon",
+                Status = "Board Review",
+                BoardNote = "Waiting for final moderation sign-off.",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(2),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-10)
+            },
+            new ExamBoardItem
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                CourseCode = "PHY201",
+                AssessmentName = "Internal Quiz 2 Release Pack",
+                BoardName = "Assessment Release Board",
+                PanelLead = "Dr. Rohan Iyer",
+                Status = "Ready To Release",
+                BoardNote = "Board checks complete. Ready for final release.",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(1),
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-4)
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -318,6 +432,7 @@ static bool CanAccessTeacherWorkspace(HttpContext httpContext, Guid requestedUse
 public sealed record PublishResultRequest(string TenantId, Guid StudentId, string SemesterCode, decimal Gpa, bool Published);
 public sealed record UpdateGradeReviewStatusRequest(string Status, string? ReviewerNote);
 public sealed record UpdateAssessmentPublicationStatusRequest(string Status, string? ModerationNote);
+public sealed record UpdateExamBoardItemStatusRequest(string Status, string? BoardNote, string? PanelLead);
 public sealed record GradeReviewSummary(
     int Total,
     int Pending,
@@ -332,6 +447,25 @@ public sealed record GradeReviewSummary(
             items.Count(item => item.Status == "Ready To Publish"),
             items.Count(item => item.Status == "Published"),
             items.ToArray());
+}
+
+public sealed record ExamBoardSummary(
+    int Total,
+    int BoardReview,
+    int ReadyToRelease,
+    int Released,
+    int DueSoon)
+{
+    public static ExamBoardSummary Create(IReadOnlyCollection<ExamBoardItem> items)
+    {
+        var dueSoonThreshold = DateTimeOffset.UtcNow.AddDays(3);
+        return new(
+            items.Count,
+            items.Count(item => item.Status == "Board Review" || item.Status == "Moderation Review"),
+            items.Count(item => item.Status == "Ready To Release"),
+            items.Count(item => item.Status == "Released"),
+            items.Count(item => item.Status != "Released" && item.DueAtUtc <= dueSoonThreshold));
+    }
 }
 
 public sealed class StudentResult
@@ -372,6 +506,22 @@ public sealed class AssessmentPublicationItem
     public DateTimeOffset? PublishedAtUtc { get; set; }
 }
 
+public sealed class ExamBoardItem
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid TeacherId { get; set; }
+    public string CourseCode { get; set; } = string.Empty;
+    public string AssessmentName { get; set; } = string.Empty;
+    public string BoardName { get; set; } = string.Empty;
+    public string PanelLead { get; set; } = string.Empty;
+    public string Status { get; set; } = "Board Review";
+    public string BoardNote { get; set; } = string.Empty;
+    public DateTimeOffset DueAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public DateTimeOffset? ReleasedAtUtc { get; set; }
+}
+
 public sealed class ExamAuditLog
 {
     public Guid Id { get; set; }
@@ -400,6 +550,7 @@ public sealed class ExamDbContext(DbContextOptions<ExamDbContext> options) : DbC
     public DbSet<StudentResult> StudentResults => Set<StudentResult>();
     public DbSet<GradeReviewItem> GradeReviews => Set<GradeReviewItem>();
     public DbSet<AssessmentPublicationItem> AssessmentPublications => Set<AssessmentPublicationItem>();
+    public DbSet<ExamBoardItem> ExamBoardItems => Set<ExamBoardItem>();
     public DbSet<ExamAuditLog> AuditLogs => Set<ExamAuditLog>();
 }
 

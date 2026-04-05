@@ -88,6 +88,40 @@ type CoursePlanItem = {
   updatedAtUtc: string;
 };
 
+type TimetableChangeItem = {
+  id: string;
+  courseCode: string;
+  currentSlot: string;
+  proposedSlot: string;
+  reason: string;
+  status: string;
+  reviewNote: string;
+  requestedAtUtc: string;
+};
+
+type MentoringAssignmentItem = {
+  id: string;
+  studentName: string;
+  batch: string;
+  supportArea: string;
+  riskLevel: string;
+  status: string;
+  nextMeetingAtUtc: string;
+  lastContactAtUtc?: string | null;
+};
+
+type ExamBoardItem = {
+  id: string;
+  courseCode: string;
+  assessmentName: string;
+  boardName: string;
+  panelLead: string;
+  status: string;
+  boardNote: string;
+  dueAtUtc: string;
+  updatedAtUtc: string;
+};
+
 type TeacherState = {
   totalCourses: number;
   teachingLoad: number;
@@ -96,6 +130,9 @@ type TeacherState = {
   officeHoursScheduled: number;
   pendingClassCoverRequests: number;
   coursePlansAwaitingApproval: number;
+  pendingTimetableChanges: number;
+  mentoringStudents: number;
+  mentoringAlerts: number;
   activeSessions: number;
   lowAttendanceCourses: number;
   learningMaterials: number;
@@ -111,6 +148,9 @@ type TeacherState = {
   officeHours: OfficeHourItem[];
   classCoverRequests: ClassCoverRequestItem[];
   coursePlans: CoursePlanItem[];
+  timetableChanges: TimetableChangeItem[];
+  mentoringRoster: MentoringAssignmentItem[];
+  examBoardItems: ExamBoardItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
   error: string | null;
 };
@@ -123,6 +163,9 @@ const demoState: TeacherState = {
   officeHoursScheduled: 2,
   pendingClassCoverRequests: 1,
   coursePlansAwaitingApproval: 1,
+  pendingTimetableChanges: 1,
+  mentoringStudents: 2,
+  mentoringAlerts: 1,
   activeSessions: 1,
   lowAttendanceCourses: 1,
   learningMaterials: 2,
@@ -195,6 +238,17 @@ const demoState: TeacherState = {
     { id: "plan-1", courseCode: "CSE401", title: "Unit 3 distributed storage plan", coverage: "Replication patterns, leader election, and operational trade-offs.", status: "Submitted", reviewNote: "Waiting for department review.", updatedAtUtc: "2026-04-03T10:00:00Z" },
     { id: "plan-2", courseCode: "PHY201", title: "Lab cycle moderation plan", coverage: "Attendance recovery support, practical demonstration flow, and quiz alignment.", status: "Approved", reviewNote: "Approved for this cycle.", updatedAtUtc: "2026-04-02T10:00:00Z" }
   ],
+  timetableChanges: [
+    { id: "time-1", courseCode: "CSE401", currentSlot: "Monday 02:00 PM | B-204", proposedSlot: "Friday 09:00 AM | B-204", reason: "Department review meeting overlaps with the current slot.", status: "Pending", reviewNote: "", requestedAtUtc: "2026-04-04T10:00:00Z" }
+  ],
+  mentoringRoster: [
+    { id: "mentor-1", studentName: "Aarav Sharma", batch: "2022", supportArea: "Attendance recovery", riskLevel: "High", status: "Meeting Scheduled", nextMeetingAtUtc: "2026-04-06T09:00:00Z", lastContactAtUtc: "2026-04-03T09:00:00Z" },
+    { id: "mentor-2", studentName: "Riya Menon", batch: "2023", supportArea: "Exam confidence and planning", riskLevel: "Medium", status: "Support Plan Active", nextMeetingAtUtc: "2026-04-08T09:00:00Z", lastContactAtUtc: "2026-04-04T09:00:00Z" }
+  ],
+  examBoardItems: [
+    { id: "board-1", courseCode: "CSE401", assessmentName: "Midterm Internal Board Packet", boardName: "Mid Semester Review Board", panelLead: "Dr. Priya Menon", status: "Board Review", boardNote: "Waiting for final moderation sign-off.", dueAtUtc: "2026-04-07T09:00:00Z", updatedAtUtc: "2026-04-05T09:00:00Z" },
+    { id: "board-2", courseCode: "PHY201", assessmentName: "Internal Quiz 2 Release Pack", boardName: "Assessment Release Board", panelLead: "Dr. Rohan Iyer", status: "Ready To Release", boardNote: "Board checks complete. Ready for final release.", dueAtUtc: "2026-04-06T09:00:00Z", updatedAtUtc: "2026-04-05T12:00:00Z" }
+  ],
   notifications: [
     {
       id: "teacher-note-1",
@@ -224,6 +278,22 @@ function getAdminCounts(classCoverRequests: ClassCoverRequestItem[], coursePlans
   };
 }
 
+function getExtendedCounts(
+  classCoverRequests: ClassCoverRequestItem[],
+  coursePlans: CoursePlanItem[],
+  officeHours: OfficeHourItem[],
+  timetableChanges: TimetableChangeItem[],
+  mentoringRoster: MentoringAssignmentItem[]
+) {
+  const base = getAdminCounts(classCoverRequests, coursePlans, officeHours);
+  return {
+    ...base,
+    pendingTimetableChanges: timetableChanges.filter((item) => item.status === "Pending").length,
+    mentoringStudents: mentoringRoster.length,
+    mentoringAlerts: mentoringRoster.filter((item) => item.riskLevel === "High" || item.status === "Needs Attention").length
+  };
+}
+
 export default function TeacherMobilePage() {
   const [state, setState] = useState<TeacherState>(demoState);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -241,7 +311,7 @@ export default function TeacherMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse, officeHoursResponse, classCoverResponse, coursePlansResponse] = await Promise.all([
+        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse, officeHoursResponse, classCoverResponse, coursePlansResponse, timetableResponse, mentoringResponse, examBoardResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
@@ -253,14 +323,17 @@ export default function TeacherMobilePage() {
           fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/office-hours`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/substitution-requests`, { headers }),
-          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/course-plans`, { headers })
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/course-plans`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/timetable-change-requests`, { headers }),
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/mentoring-roster`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/exam-board`, { headers })
         ]);
 
-        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok || !officeHoursResponse.ok || !classCoverResponse.ok || !coursePlansResponse.ok) {
+        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok || !officeHoursResponse.ok || !classCoverResponse.ok || !coursePlansResponse.ok || !timetableResponse.ok || !mentoringResponse.ok || !examBoardResponse.ok) {
           throw new Error("Teacher mobile page is unavailable.");
         }
 
-        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions, drafts, publishing, officeHours, classCoverRequests, coursePlans] = await Promise.all([
+        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions, drafts, publishing, officeHours, classCoverRequests, coursePlans, timetableChanges, mentoringRoster, examBoardItems] = await Promise.all([
           summaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
@@ -272,7 +345,10 @@ export default function TeacherMobilePage() {
           publishingResponse.json(),
           officeHoursResponse.json(),
           classCoverResponse.json(),
-          coursePlansResponse.json()
+          coursePlansResponse.json(),
+          timetableResponse.json(),
+          mentoringResponse.json(),
+          examBoardResponse.json()
         ]);
         const courseCodes = Array.from(new Set(((coursesPayload?.items ?? []) as Array<{ courseCode: string }>).map((item) => item.courseCode)));
         const lmsResponse = await fetch(
@@ -291,6 +367,9 @@ export default function TeacherMobilePage() {
           officeHoursScheduled: summary?.officeHoursScheduled ?? 0,
           pendingClassCoverRequests: summary?.pendingClassCoverRequests ?? 0,
           coursePlansAwaitingApproval: summary?.coursePlansAwaitingApproval ?? 0,
+          pendingTimetableChanges: summary?.pendingTimetableChanges ?? 0,
+          mentoringStudents: summary?.mentoringStudents ?? 0,
+          mentoringAlerts: summary?.mentoringAlerts ?? 0,
           activeSessions: attendance?.activeSessions ?? 0,
           lowAttendanceCourses: attendance?.lowAttendanceCourses ?? 0,
           learningMaterials: lms?.materials ?? 0,
@@ -306,6 +385,9 @@ export default function TeacherMobilePage() {
           officeHours: officeHours?.items ?? [],
           classCoverRequests: classCoverRequests?.items ?? [],
           coursePlans: coursePlans?.items ?? [],
+          timetableChanges: timetableChanges?.items ?? [],
+          mentoringRoster: mentoringRoster?.items ?? [],
+          examBoardItems: examBoardItems?.items ?? [],
           notifications: notifications?.items ?? [],
           error: null
         });
@@ -877,6 +959,152 @@ export default function TeacherMobilePage() {
     }
   }
 
+  async function createTimetableChange(courseCode: string, currentSlot: string, proposedSlot: string, reason: string) {
+    setBusyId(`timetable-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const nextItem: TimetableChangeItem = {
+          id: `timetable-${Date.now()}`,
+          courseCode,
+          currentSlot,
+          proposedSlot,
+          reason,
+          status: "Pending",
+          reviewNote: "",
+          requestedAtUtc: new Date().toISOString()
+        };
+        const nextChanges = [nextItem, ...state.timetableChanges].slice(0, 4);
+        const counts = getExtendedCounts(state.classCoverRequests, state.coursePlans, state.officeHours, nextChanges, state.mentoringRoster);
+        setState((current) => ({ ...current, timetableChanges: nextChanges, pendingTimetableChanges: counts.pendingTimetableChanges, error: null }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/timetable-change-requests`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          currentSlot,
+          proposedSlot,
+          reason,
+          status: "Pending"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to save timetable request.");
+      }
+
+      const payload = (await response.json()) as TimetableChangeItem;
+      setState((current) => {
+        const nextChanges = [payload, ...current.timetableChanges].slice(0, 4);
+        const counts = getExtendedCounts(current.classCoverRequests, current.coursePlans, current.officeHours, nextChanges, current.mentoringRoster);
+        return { ...current, timetableChanges: nextChanges, pendingTimetableChanges: counts.pendingTimetableChanges, error: null };
+      });
+    } catch {
+      setState((current) => ({ ...current, error: "Teacher timetable requests are unavailable right now." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateMentoringAssignment(item: MentoringAssignmentItem, status: string, supportArea: string) {
+    setBusyId(`mentoring-${item.id}`);
+
+    try {
+      if (demoMode) {
+        const nextRoster = state.mentoringRoster.map((entry) =>
+          entry.id === item.id ? { ...entry, status, supportArea, lastContactAtUtc: new Date().toISOString() } : entry
+        );
+        const counts = getExtendedCounts(state.classCoverRequests, state.coursePlans, state.officeHours, state.timetableChanges, nextRoster);
+        setState((current) => ({ ...current, mentoringRoster: nextRoster, mentoringStudents: counts.mentoringStudents, mentoringAlerts: counts.mentoringAlerts, error: null }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/mentoring-roster/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          supportArea,
+          nextMeetingAtUtc: new Date(Date.now() + 3 * 86400000).toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update mentoring record.");
+      }
+
+      const payload = (await response.json()) as MentoringAssignmentItem;
+      setState((current) => {
+        const nextRoster = current.mentoringRoster.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry));
+        const counts = getExtendedCounts(current.classCoverRequests, current.coursePlans, current.officeHours, current.timetableChanges, nextRoster);
+        return { ...current, mentoringRoster: nextRoster, mentoringStudents: counts.mentoringStudents, mentoringAlerts: counts.mentoringAlerts, error: null };
+      });
+    } catch {
+      setState((current) => ({ ...current, error: "Teacher mentoring updates are unavailable right now." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updateExamBoardItem(item: ExamBoardItem, status: string, boardNote: string) {
+    setBusyId(`board-${item.id}`);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          examBoardItems: current.examBoardItems.map((entry) => (entry.id === item.id ? { ...entry, status, boardNote, updatedAtUtc: new Date().toISOString() } : entry)),
+          error: null
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/exam-board/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          boardNote,
+          panelLead: item.panelLead
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update exam board item.");
+      }
+
+      const payload = (await response.json()) as ExamBoardItem;
+      setState((current) => ({
+        ...current,
+        examBoardItems: current.examBoardItems.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry)),
+        error: null
+      }));
+    } catch {
+      setState((current) => ({ ...current, error: "Teacher exam board actions are unavailable right now." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#07111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -985,6 +1213,13 @@ export default function TeacherMobilePage() {
           >
             <Text style={{ color: "#f5d0fe", fontWeight: "700", textAlign: "center" }}>{busyId === "plan-CSE401" ? "Saving..." : "Submit Course Plan"}</Text>
           </Pressable>
+          <Pressable
+            onPress={() => createTimetableChange("CSE401", "Monday 02:00 PM | B-204", "Friday 09:00 AM | B-204", "Department review meeting overlaps with the current slot.")}
+            disabled={busyId === "timetable-CSE401"}
+            style={{ marginTop: 12, borderRadius: 14, backgroundColor: "rgba(125, 90, 240, 0.18)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === "timetable-CSE401" ? 0.5 : 1 }}
+          >
+            <Text style={{ color: "#e9d5ff", fontWeight: "700", textAlign: "center" }}>{busyId === "timetable-CSE401" ? "Saving..." : "Request Timetable Shift"}</Text>
+          </Pressable>
           <View style={{ marginTop: 14, gap: 12 }}>
             {state.officeHours.slice(0, 2).map((item) => (
               <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
@@ -1005,6 +1240,29 @@ export default function TeacherMobilePage() {
                 <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
                 <Text style={{ color: "#f5d0fe", marginTop: 6 }}>{item.courseCode} | {item.status}</Text>
                 <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.coverage}</Text>
+              </View>
+            ))}
+            {state.timetableChanges.slice(0, 1).map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.courseCode} timetable</Text>
+                <Text style={{ color: "#e9d5ff", marginTop: 6 }}>{item.status} | {item.proposedSlot}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.reason}</Text>
+              </View>
+            ))}
+            {state.mentoringRoster.slice(0, 1).map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.studentName}</Text>
+                <Text style={{ color: "#86efac", marginTop: 6 }}>{item.riskLevel} | {item.status}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.supportArea}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => updateMentoringAssignment(item, "Support Plan Active", item.supportArea)}
+                    disabled={busyId === `mentoring-${item.id}` || item.status === "Support Plan Active"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(52, 211, 153, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `mentoring-${item.id}` || item.status === "Support Plan Active" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#d1fae5", fontWeight: "700", textAlign: "center" }}>{busyId === `mentoring-${item.id}` ? "Working..." : "Start Plan"}</Text>
+                  </Pressable>
+                </View>
               </View>
             ))}
           </View>
@@ -1160,6 +1418,41 @@ export default function TeacherMobilePage() {
                 </View>
               </View>
             ))}
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 505, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(192, 132, 252, 0.12)", borderWidth: 1, borderColor: "rgba(216, 180, 254, 0.18)" }}
+        >
+          <Text style={{ color: "#d8b4fe", fontSize: 13 }}>Exam Board</Text>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.examBoardItems.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.assessmentName}</Text>
+                <Text style={{ color: "#e9d5ff", marginTop: 6 }}>{item.courseCode} | {item.status}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.boardNote}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => updateExamBoardItem(item, "Ready To Release", "Moderation pack accepted by the board.")}
+                    disabled={busyId === `board-${item.id}` || item.status === "Ready To Release" || item.status === "Released"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(217, 70, 239, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `board-${item.id}` || item.status === "Ready To Release" || item.status === "Released" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#f5d0fe", fontWeight: "700", textAlign: "center" }}>{busyId === `board-${item.id}` ? "Working..." : "Ready"}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => updateExamBoardItem(item, "Released", "Released after board approval.")}
+                    disabled={busyId === `board-${item.id}` || item.status === "Released"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `board-${item.id}` || item.status === "Released" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>{busyId === `board-${item.id}` ? "Working..." : "Release"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {state.examBoardItems.length === 0 ? <Text style={{ color: "#94a3b8" }}>No exam board actions are waiting right now.</Text> : null}
           </View>
         </AnimatedSurface>
 

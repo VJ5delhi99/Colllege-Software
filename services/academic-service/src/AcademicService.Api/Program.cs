@@ -94,7 +94,9 @@ app.MapGet("/api/v1/teachers/{teacherId:guid}/summary", async (Guid teacherId, H
     var substitutionRequests = await dbContext.SubstitutionRequests.Where(x => x.TenantId == tenantId && x.TeacherId == teacherId).ToListAsync();
     var coursePlans = await dbContext.CoursePlans.Where(x => x.TenantId == tenantId && x.TeacherId == teacherId).ToListAsync();
     var advisingNotes = await dbContext.AdvisingNotes.Where(x => x.TenantId == tenantId && x.TeacherId == teacherId).ToListAsync();
-    var facultyAdministration = FacultyAdministrationSummary.Create(officeHours, substitutionRequests, coursePlans, advisingNotes);
+    var timetableChanges = await dbContext.TimetableChangeRequests.Where(x => x.TenantId == tenantId && x.TeacherId == teacherId).ToListAsync();
+    var mentoringRoster = await dbContext.MentoringAssignments.Where(x => x.TenantId == tenantId && x.TeacherId == teacherId).ToListAsync();
+    var facultyAdministration = FacultyAdministrationSummary.Create(officeHours, substitutionRequests, coursePlans, advisingNotes, timetableChanges, mentoringRoster);
 
     return Results.Ok(new
     {
@@ -105,7 +107,10 @@ app.MapGet("/api/v1/teachers/{teacherId:guid}/summary", async (Guid teacherId, H
         pendingClassCoverRequests = facultyAdministration.PendingClassCoverRequests,
         coursePlansAwaitingApproval = facultyAdministration.CoursePlansAwaitingApproval,
         approvedCoursePlans = facultyAdministration.ApprovedCoursePlans,
-        adviseeFollowUpsOpen = facultyAdministration.AdviseeFollowUpsOpen
+        adviseeFollowUpsOpen = facultyAdministration.AdviseeFollowUpsOpen,
+        pendingTimetableChanges = facultyAdministration.PendingTimetableChanges,
+        mentoringStudents = facultyAdministration.MentoringStudents,
+        mentoringAlerts = facultyAdministration.MentoringAlerts
     });
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
 
@@ -375,6 +380,127 @@ app.MapPost("/api/v1/teachers/{teacherId:guid}/course-plans/{coursePlanId:guid}/
     return Results.Ok(item);
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/timetable-change-requests", async (Guid teacherId, HttpContext httpContext, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.TimetableChangeRequests
+        .Where(x => x.TenantId == tenantId && x.TeacherId == teacherId)
+        .OrderByDescending(x => x.RequestedAtUtc)
+        .ToListAsync();
+    return Results.Ok(new { items, total = items.Count });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/timetable-change-requests", async (Guid teacherId, HttpContext httpContext, [FromBody] CreateTimetableChangeRequest request, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    httpContext.EnsureTenantAccess(request.TenantId);
+    if (string.IsNullOrWhiteSpace(request.CourseCode) || string.IsNullOrWhiteSpace(request.CurrentSlot) || string.IsNullOrWhiteSpace(request.ProposedSlot) || string.IsNullOrWhiteSpace(request.Reason))
+    {
+        return Results.BadRequest(new { message = "Course, current slot, proposed slot, and reason are required." });
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var entry = new FacultyTimetableChangeRequest
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        TeacherId = teacherId,
+        CourseCode = request.CourseCode.Trim(),
+        CurrentSlot = request.CurrentSlot.Trim(),
+        ProposedSlot = request.ProposedSlot.Trim(),
+        Reason = request.Reason.Trim(),
+        Status = string.IsNullOrWhiteSpace(request.Status) ? "Pending" : request.Status.Trim(),
+        ReviewNote = request.ReviewNote?.Trim() ?? string.Empty,
+        RequestedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    dbContext.TimetableChangeRequests.Add(entry);
+    dbContext.AuditLogs.Add(AcademicAuditLog.Create(tenantId, "academic.timetable-change-request.created", entry.Id.ToString(), httpContext.User.Identity?.Name ?? "academic-service", $"{entry.CourseCode}:{entry.Status}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/teachers/{teacherId}/timetable-change-requests/{entry.Id}", entry);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/timetable-change-requests/{requestId:guid}/status", async (Guid teacherId, Guid requestId, HttpContext httpContext, [FromBody] UpdateTimetableChangeStatusRequest request, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Status))
+    {
+        return Results.BadRequest(new { message = "Status is required." });
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.TimetableChangeRequests.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.TeacherId == teacherId && x.Id == requestId);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status.Trim();
+    item.ReviewNote = request.ReviewNote?.Trim() ?? item.ReviewNote;
+    item.ReviewedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(AcademicAuditLog.Create(tenantId, "academic.timetable-change-request.updated", item.Id.ToString(), httpContext.User.Identity?.Name ?? "academic-service", item.Status));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapGet("/api/v1/teachers/{teacherId:guid}/mentoring-roster", async (Guid teacherId, HttpContext httpContext, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.MentoringAssignments
+        .Where(x => x.TenantId == tenantId && x.TeacherId == teacherId)
+        .OrderByDescending(x => x.NextMeetingAtUtc)
+        .ToListAsync();
+    return Results.Ok(new { items, total = items.Count });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/mentoring-roster/{assignmentId:guid}/status", async (Guid teacherId, Guid assignmentId, HttpContext httpContext, [FromBody] UpdateMentoringAssignmentStatusRequest request, AcademicDbContext dbContext) =>
+{
+    if (!CanAccessSubject(httpContext, teacherId, "Professor", "Principal", "Admin", "DepartmentHead"))
+    {
+        return Results.Forbid();
+    }
+
+    if (string.IsNullOrWhiteSpace(request.Status))
+    {
+        return Results.BadRequest(new { message = "Status is required." });
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.MentoringAssignments.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.TeacherId == teacherId && x.Id == assignmentId);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status.Trim();
+    item.SupportArea = request.SupportArea?.Trim() ?? item.SupportArea;
+    item.NextMeetingAtUtc = request.NextMeetingAtUtc ?? item.NextMeetingAtUtc;
+    item.LastContactAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(AcademicAuditLog.Create(tenantId, "academic.mentoring-assignment.updated", item.Id.ToString(), httpContext.User.Identity?.Name ?? "academic-service", $"{item.StudentName}:{item.Status}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, AcademicDbContext dbContext, int page = 1, int pageSize = 20) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -572,6 +698,72 @@ static async Task SeedAcademicDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.TimetableChangeRequests.AnyAsync())
+    {
+        dbContext.TimetableChangeRequests.AddRange(
+        [
+            new FacultyTimetableChangeRequest
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                CourseCode = "CSE401",
+                CurrentSlot = "Monday 02:00 PM | B-204",
+                ProposedSlot = "Friday 09:00 AM | B-204",
+                Reason = "Department review meeting overlaps with the current slot.",
+                Status = "Pending",
+                RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            },
+            new FacultyTimetableChangeRequest
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                CourseCode = "PHY201",
+                CurrentSlot = "Tuesday 10:00 AM | Lab-2",
+                ProposedSlot = "Wednesday 12:30 PM | Lab-2",
+                Reason = "Lab maintenance window for the current slot.",
+                Status = "Approved",
+                ReviewNote = "Shift approved after lab coordination.",
+                RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-4),
+                ReviewedAtUtc = DateTimeOffset.UtcNow.AddDays(-3)
+            }
+        ]);
+    }
+
+    if (!await dbContext.MentoringAssignments.AnyAsync())
+    {
+        dbContext.MentoringAssignments.AddRange(
+        [
+            new FacultyMentoringAssignment
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                StudentName = "Aarav Sharma",
+                Batch = "2022",
+                SupportArea = "Attendance recovery",
+                RiskLevel = "High",
+                Status = "Meeting Scheduled",
+                NextMeetingAtUtc = DateTimeOffset.UtcNow.AddDays(1),
+                LastContactAtUtc = DateTimeOffset.UtcNow.AddDays(-2)
+            },
+            new FacultyMentoringAssignment
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                StudentName = "Riya Menon",
+                Batch = "2023",
+                SupportArea = "Exam confidence and planning",
+                RiskLevel = "Medium",
+                Status = "Support Plan Active",
+                NextMeetingAtUtc = DateTimeOffset.UtcNow.AddDays(3),
+                LastContactAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -609,6 +801,9 @@ public sealed record CreateSubstitutionRequest(string TenantId, string CourseCod
 public sealed record UpdateSubstitutionRequestStatusRequest(string Status, string? AdminNote, string? RequestedCoverTeacher);
 public sealed record CreateCoursePlanRequest(string TenantId, string CourseCode, string Title, string Coverage, string? Status, string? ReviewNote);
 public sealed record UpdateCoursePlanStatusRequest(string Status, string? ReviewNote);
+public sealed record CreateTimetableChangeRequest(string TenantId, string CourseCode, string CurrentSlot, string ProposedSlot, string Reason, string? Status, string? ReviewNote);
+public sealed record UpdateTimetableChangeStatusRequest(string Status, string? ReviewNote);
+public sealed record UpdateMentoringAssignmentStatusRequest(string Status, string? SupportArea, DateTimeOffset? NextMeetingAtUtc);
 
 public sealed class Course
 {
@@ -705,6 +900,35 @@ public sealed class FacultyCoursePlan
     public DateTimeOffset? ApprovedAtUtc { get; set; }
 }
 
+public sealed class FacultyTimetableChangeRequest
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid TeacherId { get; set; }
+    public string CourseCode { get; set; } = string.Empty;
+    public string CurrentSlot { get; set; } = string.Empty;
+    public string ProposedSlot { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public string Status { get; set; } = "Pending";
+    public string ReviewNote { get; set; } = string.Empty;
+    public DateTimeOffset RequestedAtUtc { get; set; }
+    public DateTimeOffset? ReviewedAtUtc { get; set; }
+}
+
+public sealed class FacultyMentoringAssignment
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid TeacherId { get; set; }
+    public string StudentName { get; set; } = string.Empty;
+    public string Batch { get; set; } = string.Empty;
+    public string SupportArea { get; set; } = string.Empty;
+    public string RiskLevel { get; set; } = "Medium";
+    public string Status { get; set; } = "Meeting Scheduled";
+    public DateTimeOffset NextMeetingAtUtc { get; set; }
+    public DateTimeOffset? LastContactAtUtc { get; set; }
+}
+
 public sealed class AcademicDbContext(DbContextOptions<AcademicDbContext> options) : DbContext(options)
 {
     public DbSet<Course> Courses => Set<Course>();
@@ -712,6 +936,8 @@ public sealed class AcademicDbContext(DbContextOptions<AcademicDbContext> option
     public DbSet<FacultyOfficeHour> OfficeHours => Set<FacultyOfficeHour>();
     public DbSet<FacultySubstitutionRequest> SubstitutionRequests => Set<FacultySubstitutionRequest>();
     public DbSet<FacultyCoursePlan> CoursePlans => Set<FacultyCoursePlan>();
+    public DbSet<FacultyTimetableChangeRequest> TimetableChangeRequests => Set<FacultyTimetableChangeRequest>();
+    public DbSet<FacultyMentoringAssignment> MentoringAssignments => Set<FacultyMentoringAssignment>();
     public DbSet<AcademicAuditLog> AuditLogs => Set<AcademicAuditLog>();
 }
 
@@ -720,19 +946,27 @@ public sealed record FacultyAdministrationSummary(
     int PendingClassCoverRequests,
     int CoursePlansAwaitingApproval,
     int ApprovedCoursePlans,
-    int AdviseeFollowUpsOpen)
+    int AdviseeFollowUpsOpen,
+    int PendingTimetableChanges,
+    int MentoringStudents,
+    int MentoringAlerts)
 {
     public static FacultyAdministrationSummary Create(
         IReadOnlyCollection<FacultyOfficeHour> officeHours,
         IReadOnlyCollection<FacultySubstitutionRequest> substitutionRequests,
         IReadOnlyCollection<FacultyCoursePlan> coursePlans,
-        IReadOnlyCollection<AdvisingNote> advisingNotes) =>
+        IReadOnlyCollection<AdvisingNote> advisingNotes,
+        IReadOnlyCollection<FacultyTimetableChangeRequest> timetableChanges,
+        IReadOnlyCollection<FacultyMentoringAssignment> mentoringAssignments) =>
         new(
             officeHours.Count(item => !string.Equals(item.Status, "Cancelled", StringComparison.OrdinalIgnoreCase)),
             substitutionRequests.Count(item => string.Equals(item.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
             coursePlans.Count(item => string.Equals(item.Status, "Submitted", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Review", StringComparison.OrdinalIgnoreCase)),
             coursePlans.Count(item => string.Equals(item.Status, "Approved", StringComparison.OrdinalIgnoreCase)),
-            advisingNotes.Count(item => string.Equals(item.FollowUpStatus, "Open", StringComparison.OrdinalIgnoreCase)));
+            advisingNotes.Count(item => string.Equals(item.FollowUpStatus, "Open", StringComparison.OrdinalIgnoreCase)),
+            timetableChanges.Count(item => string.Equals(item.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+            mentoringAssignments.Count,
+            mentoringAssignments.Count(item => string.Equals(item.RiskLevel, "High", StringComparison.OrdinalIgnoreCase) || string.Equals(item.Status, "Needs Attention", StringComparison.OrdinalIgnoreCase)));
 }
 
 public static class KnownUsers

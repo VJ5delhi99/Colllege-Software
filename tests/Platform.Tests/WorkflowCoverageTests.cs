@@ -183,6 +183,18 @@ public sealed class WorkflowCoverageTests
             [
                 new IncubationStartup { Status = "Mentoring" },
                 new IncubationStartup { Status = "Graduated" }
+            ],
+            [
+                new EstateContract { Status = "Renewal Review", RenewalDueAtUtc = DateTimeOffset.UtcNow.AddDays(10) },
+                new EstateContract { Status = "Active", RenewalDueAtUtc = DateTimeOffset.UtcNow.AddDays(60) }
+            ],
+            [
+                new CampusPlanningInitiative { Status = "Board Review", DueAtUtc = DateTimeOffset.UtcNow.AddDays(7) },
+                new CampusPlanningInitiative { Status = "Closed", DueAtUtc = DateTimeOffset.UtcNow.AddDays(40) }
+            ],
+            [
+                new ResourceGenerationCampaign { Status = "Prospect Outreach" },
+                new ResourceGenerationCampaign { Status = "Closed" }
             ]);
 
         summary.OpenWorkOrders.Should().Be(1);
@@ -191,6 +203,9 @@ public sealed class WorkflowCoverageTests
         summary.ComplianceDeadlines.Should().Be(2);
         summary.OpenRtiCases.Should().Be(1);
         summary.ActiveIncubations.Should().Be(1);
+        summary.ContractRenewalsDue.Should().Be(1);
+        summary.PlanningMilestonesDue.Should().Be(1);
+        summary.ActiveResourceCampaigns.Should().Be(1);
     }
 
     [Fact]
@@ -463,6 +478,14 @@ public sealed class WorkflowCoverageTests
             [
                 new AdvisingNote { FollowUpStatus = "Open" },
                 new AdvisingNote { FollowUpStatus = "Closed" }
+            ],
+            [
+                new FacultyTimetableChangeRequest { Status = "Pending" },
+                new FacultyTimetableChangeRequest { Status = "Approved" }
+            ],
+            [
+                new FacultyMentoringAssignment { RiskLevel = "High", Status = "Meeting Scheduled" },
+                new FacultyMentoringAssignment { RiskLevel = "Low", Status = "Support Plan Active" }
             ]);
 
         summary.OfficeHoursScheduled.Should().Be(1);
@@ -470,6 +493,26 @@ public sealed class WorkflowCoverageTests
         summary.CoursePlansAwaitingApproval.Should().Be(1);
         summary.ApprovedCoursePlans.Should().Be(1);
         summary.AdviseeFollowUpsOpen.Should().Be(1);
+        summary.PendingTimetableChanges.Should().Be(1);
+        summary.MentoringStudents.Should().Be(2);
+        summary.MentoringAlerts.Should().Be(1);
+    }
+
+    [Fact]
+    public void ExamBoardSummary_CountsReviewReleaseAndDueSoonSignals()
+    {
+        var summary = ExamBoardSummary.Create(
+            [
+                new ExamBoardItem { Status = "Board Review", DueAtUtc = DateTimeOffset.UtcNow.AddDays(2) },
+                new ExamBoardItem { Status = "Ready To Release", DueAtUtc = DateTimeOffset.UtcNow.AddDays(1) },
+                new ExamBoardItem { Status = "Released", DueAtUtc = DateTimeOffset.UtcNow.AddDays(-1) }
+            ]);
+
+        summary.Total.Should().Be(3);
+        summary.BoardReview.Should().Be(1);
+        summary.ReadyToRelease.Should().Be(1);
+        summary.Released.Should().Be(1);
+        summary.DueSoon.Should().Be(2);
     }
 
     [Fact]
