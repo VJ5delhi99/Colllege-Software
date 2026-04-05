@@ -84,6 +84,36 @@ app.MapGet("/api/v1/students/{id:guid}/requests", async (Guid id, HttpContext ht
     return Results.Ok(new { items, total = items.Count });
 }).RequireRoles("Student", "Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/students/{studentId:guid}/requests/{requestId:guid}/delivery", async (Guid studentId, Guid requestId, HttpContext httpContext, StudentDbContext db) =>
+{
+    if (!StudentAccessPolicy.CanAccessStudentWorkspace(httpContext, studentId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var serviceRequest = await db.ServiceRequests.FirstOrDefaultAsync(x => x.Id == requestId && x.StudentId == studentId && x.TenantId == tenantId);
+    if (serviceRequest is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (string.IsNullOrWhiteSpace(serviceRequest.DeliveryChannel) || string.IsNullOrWhiteSpace(serviceRequest.DownloadUrl))
+    {
+        return Results.BadRequest(new { message = "This request does not have a delivery package yet." });
+    }
+
+    return Results.Ok(new
+    {
+        requestId = serviceRequest.Id,
+        serviceRequest.RequestType,
+        serviceRequest.FulfillmentReference,
+        serviceRequest.DeliveryChannel,
+        serviceRequest.DownloadUrl,
+        serviceRequest.DeliveredAtUtc
+    });
+}).RequireRoles("Student", "Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/requests/summary", async (HttpContext httpContext, StudentDbContext db) =>
 {
     var tenantId = httpContext.GetValidatedTenantId();
@@ -169,6 +199,14 @@ app.MapPost("/api/v1/requests/{id:guid}/status", async (Guid id, HttpContext htt
     serviceRequest.ResolutionNote = request.ResolutionNote?.Trim() ?? serviceRequest.ResolutionNote;
     serviceRequest.FulfillmentReference = request.FulfillmentReference?.Trim() ?? serviceRequest.FulfillmentReference;
     serviceRequest.ResolvedAtUtc = request.Status is "Approved" or "Fulfilled" ? DateTimeOffset.UtcNow : serviceRequest.ResolvedAtUtc;
+    if (string.Equals(serviceRequest.Status, "Fulfilled", StringComparison.OrdinalIgnoreCase))
+    {
+        serviceRequest.DeliveryChannel = string.IsNullOrWhiteSpace(request.DeliveryChannel) ? "Portal Download" : request.DeliveryChannel.Trim();
+        serviceRequest.DownloadUrl = string.IsNullOrWhiteSpace(request.DownloadUrl)
+            ? $"https://student-documents.university360.local/download/{serviceRequest.Id:N}?ref={Uri.EscapeDataString(serviceRequest.FulfillmentReference)}"
+            : request.DownloadUrl.Trim();
+        serviceRequest.DeliveredAtUtc ??= DateTimeOffset.UtcNow;
+    }
 
     db.AuditLogs.Add(new AuditLogEntry
     {
@@ -320,8 +358,11 @@ static async Task SeedAsync(WebApplication app)
                 AssignedTo = "Examination Cell",
                 ResolutionNote = "Printed transcript is available at the examination counter.",
                 FulfillmentReference = "CERT-2026-1004",
+                DeliveryChannel = "Portal Download",
+                DownloadUrl = "https://student-documents.university360.local/download/transcript/CERT-2026-1004",
                 RequestedAtUtc = DateTimeOffset.UtcNow.AddDays(-6),
-                ResolvedAtUtc = DateTimeOffset.UtcNow.AddDays(-4)
+                ResolvedAtUtc = DateTimeOffset.UtcNow.AddDays(-4),
+                DeliveredAtUtc = DateTimeOffset.UtcNow.AddDays(-4)
             }
         ]);
     }
@@ -331,7 +372,7 @@ static async Task SeedAsync(WebApplication app)
 
 public sealed record EnrollmentRequest(string TenantId, Guid StudentId, string CourseCode, string SemesterCode, string Status);
 public sealed record CreateStudentRequest(string TenantId, string RequestType, string Title, string? Description, string? AssignedTo = null);
-public sealed record UpdateStudentRequestStatusRequest(string Status, string? ResolutionNote, string? FulfillmentReference, string? AssignedTo);
+public sealed record UpdateStudentRequestStatusRequest(string Status, string? ResolutionNote, string? FulfillmentReference, string? AssignedTo, string? DeliveryChannel = null, string? DownloadUrl = null);
 public sealed record StudentRequestSummary(
     int Total,
     int Submitted,
@@ -384,8 +425,11 @@ public sealed class StudentServiceRequest
     public string AssignedTo { get; set; } = string.Empty;
     public string ResolutionNote { get; set; } = string.Empty;
     public string FulfillmentReference { get; set; } = string.Empty;
+    public string DeliveryChannel { get; set; } = string.Empty;
+    public string DownloadUrl { get; set; } = string.Empty;
     public DateTimeOffset RequestedAtUtc { get; set; }
     public DateTimeOffset? ResolvedAtUtc { get; set; }
+    public DateTimeOffset? DeliveredAtUtc { get; set; }
 }
 
 public sealed class AuditLogEntry

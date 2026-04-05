@@ -251,6 +251,154 @@ app.MapGet("/api/v1/hr/appraisals", async (HttpContext httpContext, Organization
     return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
 }).RequireRoles("Admin", "Principal", "HRManager", "HRStaff");
 
+app.MapGet("/api/v1/governance/summary", async (HttpContext httpContext, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var workOrders = await dbContext.FacilityWorkOrders.Where(x => x.TenantId == tenantId).ToListAsync();
+    var researchProjects = await dbContext.ResearchProjects.Where(x => x.TenantId == tenantId).ToListAsync();
+    var accreditationItems = await dbContext.AccreditationInitiatives.Where(x => x.TenantId == tenantId).ToListAsync();
+    var legalCases = await dbContext.LegalCases.Where(x => x.TenantId == tenantId).ToListAsync();
+    var incubationStartups = await dbContext.IncubationStartups.Where(x => x.TenantId == tenantId).ToListAsync();
+
+    return Results.Ok(GovernanceOperationsSummary.Create(workOrders, researchProjects, accreditationItems, legalCases, incubationStartups));
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/facility/work-orders", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.FacilityWorkOrders.Where(x => x.TenantId == tenantId).OrderBy(x => x.DueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/facility/work-orders/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateFacilityWorkOrderStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.FacilityWorkOrders.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.AssignedTo = string.IsNullOrWhiteSpace(request.AssignedTo) ? item.AssignedTo : request.AssignedTo.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/ird/projects", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.ResearchProjects.Where(x => x.TenantId == tenantId).OrderBy(x => x.MilestoneDueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/ird/projects/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateResearchProjectStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.ResearchProjects.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.PrincipalInvestigator = string.IsNullOrWhiteSpace(request.OwnerName) ? item.PrincipalInvestigator : request.OwnerName.Trim();
+    item.ComplianceStatus = string.IsNullOrWhiteSpace(request.ComplianceStatus) ? item.ComplianceStatus : request.ComplianceStatus.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/accreditation/initiatives", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.AccreditationInitiatives.Where(x => x.TenantId == tenantId).OrderBy(x => x.DueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/accreditation/initiatives/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateAccreditationInitiativeStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.AccreditationInitiatives.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/legal/cases", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.LegalCases.Where(x => x.TenantId == tenantId).OrderBy(x => x.DueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/legal/cases/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateLegalCaseStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.LegalCases.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.OwnerName = string.IsNullOrWhiteSpace(request.OwnerName) ? item.OwnerName : request.OwnerName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapGet("/api/v1/incubation/startups", async (HttpContext httpContext, OrganizationDbContext dbContext, int page = 1, int pageSize = 10) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var safePage = Math.Max(page, 1);
+    var safePageSize = Math.Clamp(pageSize, 1, 50);
+    var query = dbContext.IncubationStartups.Where(x => x.TenantId == tenantId).OrderBy(x => x.ReviewDueAtUtc);
+    var total = await query.CountAsync();
+    var items = await query.Skip((safePage - 1) * safePageSize).Take(safePageSize).ToListAsync();
+    return Results.Ok(new { page = safePage, pageSize = safePageSize, total, items });
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
+app.MapPost("/api/v1/incubation/startups/{id:guid}/status", async (Guid id, HttpContext httpContext, UpdateIncubationStartupStatusRequest request, OrganizationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.IncubationStartups.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Id == id);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status;
+    item.MentorName = string.IsNullOrWhiteSpace(request.MentorName) ? item.MentorName : request.MentorName.Trim();
+    item.Note = string.IsNullOrWhiteSpace(request.Note) ? item.Note : request.Note.Trim();
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Admin", "Principal", "Registrar", "OperationsLead");
+
 app.Run();
 
 static async Task SeedOrganizationDataAsync(WebApplication app)
@@ -713,6 +861,175 @@ static async Task SeedOrganizationDataAsync(WebApplication app)
         ]);
     }
 
+    if (!await dbContext.FacilityWorkOrders.AnyAsync())
+    {
+        dbContext.FacilityWorkOrders.AddRange(
+        [
+            new FacilityWorkOrder
+            {
+                Id = Guid.Parse("44000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                CampusId = northCampusId,
+                Title = "Chiller plant preventive maintenance",
+                Category = "Utilities",
+                Status = "Scheduled",
+                Priority = "High",
+                AssignedTo = "Campus Engineering",
+                VendorName = "ThermoServe Engineering",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(3),
+                AmcStatus = "Expiring Soon",
+                Note = "Annual preventive maintenance before summer load."
+            },
+            new FacilityWorkOrder
+            {
+                Id = Guid.Parse("44000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                CampusId = heritageCampusId,
+                Title = "Library access control audit",
+                Category = "Security",
+                Status = "In Progress",
+                Priority = "Medium",
+                AssignedTo = "Security Office",
+                VendorName = "SecureEdge Systems",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(1),
+                AmcStatus = "Healthy",
+                Note = "Door controller firmware and badge reconciliation."
+            }
+        ]);
+    }
+
+    if (!await dbContext.ResearchProjects.AnyAsync())
+    {
+        dbContext.ResearchProjects.AddRange(
+        [
+            new ResearchProject
+            {
+                Id = Guid.Parse("45000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                DepartmentName = "Computer Science",
+                Title = "AI-enabled crop resilience platform",
+                SponsorName = "DST Innovation Grant",
+                Status = "Active",
+                PrincipalInvestigator = "Dr. Priya Menon",
+                BudgetAmount = 4200000m,
+                MilestoneDueAtUtc = DateTimeOffset.UtcNow.AddDays(10),
+                ComplianceStatus = "Report Due",
+                Note = "Field pilot data pack due for sponsor review."
+            },
+            new ResearchProject
+            {
+                Id = Guid.Parse("45000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                DepartmentName = "Biosciences",
+                Title = "Low-cost rapid diagnostics study",
+                SponsorName = "State Health Mission",
+                Status = "Grant Review",
+                PrincipalInvestigator = "Dr. Asha Varma",
+                BudgetAmount = 2750000m,
+                MilestoneDueAtUtc = DateTimeOffset.UtcNow.AddDays(18),
+                ComplianceStatus = "Ethics Submitted",
+                Note = "Ethics review board follow-up pending."
+            }
+        ]);
+    }
+
+    if (!await dbContext.AccreditationInitiatives.AnyAsync())
+    {
+        dbContext.AccreditationInitiatives.AddRange(
+        [
+            new AccreditationInitiative
+            {
+                Id = Guid.Parse("46000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                FrameworkName = "NBA",
+                CycleName = "Outcome assessment 2026",
+                Status = "Evidence Collection",
+                OwnerName = "Quality Assurance Cell",
+                EvidenceCount = 18,
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(12),
+                NextReviewAtUtc = DateTimeOffset.UtcNow.AddDays(5),
+                Note = "Course outcome mapping needs department sign-off."
+            },
+            new AccreditationInitiative
+            {
+                Id = Guid.Parse("46000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                FrameworkName = "NAAC",
+                CycleName = "SSR criterion refresh",
+                Status = "Review Pending",
+                OwnerName = "IQAC",
+                EvidenceCount = 24,
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(7),
+                NextReviewAtUtc = DateTimeOffset.UtcNow.AddDays(2),
+                Note = "Narrative sections require registrar review."
+            }
+        ]);
+    }
+
+    if (!await dbContext.LegalCases.AnyAsync())
+    {
+        dbContext.LegalCases.AddRange(
+        [
+            new LegalCaseItem
+            {
+                Id = Guid.Parse("47000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                CaseType = "RTI",
+                Title = "Scholarship allocation disclosure request",
+                Status = "Response Drafting",
+                OwnerName = "Registrar Office",
+                ForumName = "Public Information Desk",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(4),
+                RiskLevel = "Medium",
+                Note = "Finance annexure still pending."
+            },
+            new LegalCaseItem
+            {
+                Id = Guid.Parse("47000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                CaseType = "Legal Notice",
+                Title = "Vendor contract renewal clarification",
+                Status = "Counsel Review",
+                OwnerName = "Legal Cell",
+                ForumName = "External Counsel",
+                DueAtUtc = DateTimeOffset.UtcNow.AddDays(9),
+                RiskLevel = "Low",
+                Note = "Awaiting annotated MSA changes."
+            }
+        ]);
+    }
+
+    if (!await dbContext.IncubationStartups.AnyAsync())
+    {
+        dbContext.IncubationStartups.AddRange(
+        [
+            new IncubationStartup
+            {
+                Id = Guid.Parse("48000000-0000-0000-0000-000000000001"),
+                TenantId = "default",
+                CohortName = "Spring 2026",
+                StartupName = "CircuitNest",
+                Status = "Mentoring",
+                MentorName = "Prof. Rohan Iyer",
+                FundingStage = "Prototype Grant",
+                ReviewDueAtUtc = DateTimeOffset.UtcNow.AddDays(6),
+                Note = "Investor demo deck rehearsal scheduled."
+            },
+            new IncubationStartup
+            {
+                Id = Guid.Parse("48000000-0000-0000-0000-000000000002"),
+                TenantId = "default",
+                CohortName = "Spring 2026",
+                StartupName = "BioWeave Labs",
+                Status = "Compliance Review",
+                MentorName = "Dr. Asha Varma",
+                FundingStage = "Seed Readiness",
+                ReviewDueAtUtc = DateTimeOffset.UtcNow.AddDays(11),
+                Note = "IP filing checklist under review."
+            }
+        ]);
+    }
+
     await dbContext.SaveChangesAsync();
 }
 
@@ -757,6 +1074,27 @@ public static class HumanResourcesSummary
     }
 }
 
+public static class GovernanceOperationsSummary
+{
+    public static GovernanceOperationsSnapshot Create(
+        IReadOnlyCollection<FacilityWorkOrder> workOrders,
+        IReadOnlyCollection<ResearchProject> researchProjects,
+        IReadOnlyCollection<AccreditationInitiative> accreditationItems,
+        IReadOnlyCollection<LegalCaseItem> legalCases,
+        IReadOnlyCollection<IncubationStartup> incubationStartups)
+    {
+        var openWorkOrders = workOrders.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Completed", StringComparison.OrdinalIgnoreCase));
+        var amcExpiring = workOrders.Count(x => x.AmcStatus.Contains("Expiring", StringComparison.OrdinalIgnoreCase));
+        var activeProjects = researchProjects.Count(x => !string.Equals(x.Status, "Completed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase));
+        var complianceDeadlines = researchProjects.Count(x => x.ComplianceStatus.Contains("Due", StringComparison.OrdinalIgnoreCase) || x.ComplianceStatus.Contains("Pending", StringComparison.OrdinalIgnoreCase))
+            + accreditationItems.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && x.DueAtUtc <= DateTimeOffset.UtcNow.AddDays(14));
+        var openRtiCases = legalCases.Count(x => !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Disposed", StringComparison.OrdinalIgnoreCase));
+        var activeIncubations = incubationStartups.Count(x => !string.Equals(x.Status, "Graduated", StringComparison.OrdinalIgnoreCase) && !string.Equals(x.Status, "Closed", StringComparison.OrdinalIgnoreCase));
+
+        return new GovernanceOperationsSnapshot(openWorkOrders, amcExpiring, activeProjects, complianceDeadlines, openRtiCases, activeIncubations);
+    }
+}
+
 public sealed record OrganizationCatalogSummary(
     int Colleges,
     int Campuses,
@@ -775,9 +1113,27 @@ public sealed record HumanResourcesSnapshot(
     int AppraisalsDueSoon,
     int CompletedAppraisals);
 
+public sealed record GovernanceOperationsSnapshot(
+    int OpenWorkOrders,
+    int AmcExpiring,
+    int ActiveProjects,
+    int ComplianceDeadlines,
+    int OpenRtiCases,
+    int ActiveIncubations);
+
 public sealed record UpdateLeaveRequestStatusRequest(string Status, string? ApproverName, string? Comment);
 
 public sealed record UpdateRecruitmentOpeningStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdateFacilityWorkOrderStatusRequest(string Status, string? AssignedTo, string? Note);
+
+public sealed record UpdateResearchProjectStatusRequest(string Status, string? OwnerName, string? ComplianceStatus, string? Note);
+
+public sealed record UpdateAccreditationInitiativeStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdateLegalCaseStatusRequest(string Status, string? OwnerName, string? Note);
+
+public sealed record UpdateIncubationStartupStatusRequest(string Status, string? MentorName, string? Note);
 
 public sealed class CollegeProfile
 {
@@ -890,6 +1246,78 @@ public sealed class AppraisalCycle
     public decimal Score { get; set; }
 }
 
+public sealed class FacilityWorkOrder
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid CampusId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string Status { get; set; } = "Open";
+    public string Priority { get; set; } = "Medium";
+    public string AssignedTo { get; set; } = string.Empty;
+    public string VendorName { get; set; } = string.Empty;
+    public DateTimeOffset DueAtUtc { get; set; }
+    public string AmcStatus { get; set; } = "Healthy";
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class ResearchProject
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string DepartmentName { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string SponsorName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Planned";
+    public string PrincipalInvestigator { get; set; } = string.Empty;
+    public decimal BudgetAmount { get; set; }
+    public DateTimeOffset MilestoneDueAtUtc { get; set; }
+    public string ComplianceStatus { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class AccreditationInitiative
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string FrameworkName { get; set; } = string.Empty;
+    public string CycleName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Planned";
+    public string OwnerName { get; set; } = string.Empty;
+    public int EvidenceCount { get; set; }
+    public DateTimeOffset DueAtUtc { get; set; }
+    public DateTimeOffset NextReviewAtUtc { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class LegalCaseItem
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string CaseType { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = "Open";
+    public string OwnerName { get; set; } = string.Empty;
+    public string ForumName { get; set; } = string.Empty;
+    public DateTimeOffset DueAtUtc { get; set; }
+    public string RiskLevel { get; set; } = "Medium";
+    public string Note { get; set; } = string.Empty;
+}
+
+public sealed class IncubationStartup
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string CohortName { get; set; } = string.Empty;
+    public string StartupName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Mentoring";
+    public string MentorName { get; set; } = string.Empty;
+    public string FundingStage { get; set; } = string.Empty;
+    public DateTimeOffset ReviewDueAtUtc { get; set; }
+    public string Note { get; set; } = string.Empty;
+}
+
 public sealed class AcademicProgramProfile
 {
     public Guid Id { get; set; }
@@ -918,4 +1346,9 @@ public sealed class OrganizationDbContext(DbContextOptions<OrganizationDbContext
     public DbSet<LeaveRequest> LeaveRequests => Set<LeaveRequest>();
     public DbSet<RecruitmentOpening> RecruitmentOpenings => Set<RecruitmentOpening>();
     public DbSet<AppraisalCycle> AppraisalCycles => Set<AppraisalCycle>();
+    public DbSet<FacilityWorkOrder> FacilityWorkOrders => Set<FacilityWorkOrder>();
+    public DbSet<ResearchProject> ResearchProjects => Set<ResearchProject>();
+    public DbSet<AccreditationInitiative> AccreditationInitiatives => Set<AccreditationInitiative>();
+    public DbSet<LegalCaseItem> LegalCases => Set<LegalCaseItem>();
+    public DbSet<IncubationStartup> IncubationStartups => Set<IncubationStartup>();
 }

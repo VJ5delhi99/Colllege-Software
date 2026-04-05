@@ -25,10 +25,11 @@ The repository already had strong service coverage, but the shipped experience s
 - Rebuilt the operations web UI so inquiry handling, applications, documents, communications, and reminders are visible together in one admissions operating surface.
 - Expanded mobile role coverage so admin and teacher workspaces reflect more of the live platform state instead of only demo-style overview cards.
 - Added admissions automation logic for stale applications and delayed checklist items so the platform can create escalation/reminder work instead of relying only on manual monitoring.
+- Added admissions journey templates, counselor workload balancing, and outreach execution so inquiry/application follow-up now behaves more like an operating system than a passive dashboard.
 - Added federation readiness reporting, callback-based federated sign-in completion, payment-provider rollout readiness, and stronger production validation around those configuration seams.
 - Updated the admin workspace so automation risk and rollout-readiness signals are visible beside catalog, finance, and inquiry metrics.
 - Added student self-service workflows and richer workspace context so requests, enrollments, and learning content are visible in both web and mobile student experiences.
-- Expanded the teacher surface to include owned courses, attendance-risk alerts, active session visibility, LMS workload, grading-state actions, and advising-note capture instead of only generic summary numbers.
+- Expanded the teacher surface to include owned courses, attendance-risk alerts, active session visibility, LMS workload, content drafts, quick attendance capture, assessment publication handling, grading-state actions, and advising-note capture instead of only generic summary numbers.
 - Added end-to-end certificate-style request fulfillment support so student requests can move from submission to approval and issuance with visible fulfillment references across student and admin surfaces.
 - Added teacher-scoped attendance-session control so faculty can now start and close live attendance windows from both web and mobile workspaces.
 - Added student-initiated payment-session creation so finance no longer stops at summary visibility inside the student-facing product.
@@ -38,13 +39,14 @@ The repository already had strong service coverage, but the shipped experience s
 - Added HR foundation inside the extracted organization boundary so employee master data, onboarding progress, leave approvals, recruitment openings, and appraisal due tracking are now live in the product.
 - Added stores and purchase foundation inside the finance boundary so vendor, requisition, purchase-order, and stock-risk signals are now operational instead of remaining only in the requirement review.
 - Expanded the admin web and mobile workspaces so HR and procurement queues sit next to admissions, catalog, identity, and finance oversight rather than remaining hidden backend capability.
+- Added governance and campus-operations foundations in the organization boundary so facility work orders, IRD projects, accreditation initiatives, RTI/legal matters, and incubation cohorts are now visible and actionable in the admin web/mobile product.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
 
 - Replace one-file minimal-API service implementations with cleaner internal boundaries in the highest-change services.
-- Add richer admissions automation such as templated outreach, deeper escalation policies, and counselor workload orchestration.
-- Expand the mobile app beyond the current student request, teacher grading/advising, and admin follow-up actions so more transactional workflows reach parity with the web.
-- Add deeper automated coverage for the public discovery, admissions, and cross-service role workflows.
+- Deepen admissions orchestration from the current templated outreach and balancing layer into longer multi-step journeys and policy-driven escalation.
+- Expand the mobile app beyond the current student request, teacher quick-action, and admin governance coverage so more large transactional workflows reach parity with the web.
+- Add deeper automated coverage for browser-level public discovery, admissions, and cross-service role workflows.
 - Finish production rollout concerns such as external SSO federation, live payment credentials, and managed secret providers.
-- Continue the PDF-driven ERP closure with governance modules such as accreditation, legal/RTI, and IRD where the repo is still thinner than the source requirement set.
+- Extend the new governance slice into broader estate/contracts/planning/resource-generation workflows where the repo is still thinner than the source requirement set.

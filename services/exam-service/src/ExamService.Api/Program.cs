@@ -109,6 +109,45 @@ app.MapGet("/api/v1/teachers/{teacherId:guid}/grading-summary", async (Guid teac
     return Results.Ok(GradeReviewSummary.Create(items));
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/publishing-queue", async (Guid teacherId, HttpContext httpContext, ExamDbContext dbContext) =>
+{
+    if (!CanAccessTeacherWorkspace(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.AssessmentPublications
+        .Where(x => x.TenantId == tenantId && x.TeacherId == teacherId)
+        .OrderByDescending(x => x.UpdatedAtUtc)
+        .ToListAsync();
+    return Results.Ok(new { items, total = items.Count });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/publishing-queue/{id:guid}/status", async (Guid teacherId, Guid id, HttpContext httpContext, [FromBody] UpdateAssessmentPublicationStatusRequest request, ExamDbContext dbContext) =>
+{
+    if (!CanAccessTeacherWorkspace(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var item = await dbContext.AssessmentPublications.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId && x.TeacherId == teacherId);
+    if (item is null)
+    {
+        return Results.NotFound();
+    }
+
+    item.Status = request.Status.Trim();
+    item.ModerationNote = request.ModerationNote?.Trim() ?? item.ModerationNote;
+    item.PublishedAtUtc = string.Equals(item.Status, "Published", StringComparison.OrdinalIgnoreCase) ? DateTimeOffset.UtcNow : item.PublishedAtUtc;
+    item.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(ExamAuditLog.Create(tenantId, "exam.assessment-publication.status-updated", item.Id.ToString(), httpContext.User.Identity?.Name ?? "exam-service", $"{item.CourseCode}:{item.AssessmentName}:{item.Status}"));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(item);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapPost("/api/v1/teachers/{teacherId:guid}/grade-reviews/{id:guid}/status", async (Guid teacherId, Guid id, HttpContext httpContext, [FromBody] UpdateGradeReviewStatusRequest request, ExamDbContext dbContext) =>
 {
     if (!CanAccessTeacherWorkspace(httpContext, teacherId))
@@ -149,34 +188,33 @@ static async Task SeedExamDataAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<ExamDbContext>();
-    if (await dbContext.StudentResults.AnyAsync())
-    {
-        return;
-    }
 
-    dbContext.StudentResults.AddRange(
-    [
-        new StudentResult
-        {
-            TenantId = "default",
-            Id = Guid.NewGuid(),
-            StudentId = KnownUsers.StudentId,
-            SemesterCode = "2025-FALL",
-            Gpa = 8.7m,
-            Published = true,
-            PublishedAtUtc = DateTimeOffset.UtcNow.AddDays(-120)
-        },
-        new StudentResult
-        {
-            TenantId = "default",
-            Id = Guid.NewGuid(),
-            StudentId = KnownUsers.StudentId,
-            SemesterCode = "2026-SPRING",
-            Gpa = 8.9m,
-            Published = true,
-            PublishedAtUtc = DateTimeOffset.UtcNow.AddDays(-10)
-        }
-    ]);
+    if (!await dbContext.StudentResults.AnyAsync())
+    {
+        dbContext.StudentResults.AddRange(
+        [
+            new StudentResult
+            {
+                TenantId = "default",
+                Id = Guid.NewGuid(),
+                StudentId = KnownUsers.StudentId,
+                SemesterCode = "2025-FALL",
+                Gpa = 8.7m,
+                Published = true,
+                PublishedAtUtc = DateTimeOffset.UtcNow.AddDays(-120)
+            },
+            new StudentResult
+            {
+                TenantId = "default",
+                Id = Guid.NewGuid(),
+                StudentId = KnownUsers.StudentId,
+                SemesterCode = "2026-SPRING",
+                Gpa = 8.9m,
+                Published = true,
+                PublishedAtUtc = DateTimeOffset.UtcNow.AddDays(-10)
+            }
+        ]);
+    }
 
     if (!await dbContext.GradeReviews.AnyAsync())
     {
@@ -207,6 +245,35 @@ static async Task SeedExamDataAsync(WebApplication app)
                 ReviewerNote = "Moderation completed.",
                 CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
                 UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            }
+        ]);
+    }
+
+    if (!await dbContext.AssessmentPublications.AnyAsync())
+    {
+        dbContext.AssessmentPublications.AddRange(
+        [
+            new AssessmentPublicationItem
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                CourseCode = "CSE401",
+                AssessmentName = "Midterm Rubric",
+                Status = "Moderation Review",
+                ModerationNote = "Waiting for final rubric sign-off.",
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1)
+            },
+            new AssessmentPublicationItem
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TeacherId = KnownUsers.ProfessorId,
+                CourseCode = "PHY201",
+                AssessmentName = "Internal Quiz 2",
+                Status = "Ready To Publish",
+                ModerationNote = "Moderation completed and board-ready.",
+                UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-6)
             }
         ]);
     }
@@ -250,6 +317,7 @@ static bool CanAccessTeacherWorkspace(HttpContext httpContext, Guid requestedUse
 
 public sealed record PublishResultRequest(string TenantId, Guid StudentId, string SemesterCode, decimal Gpa, bool Published);
 public sealed record UpdateGradeReviewStatusRequest(string Status, string? ReviewerNote);
+public sealed record UpdateAssessmentPublicationStatusRequest(string Status, string? ModerationNote);
 public sealed record GradeReviewSummary(
     int Total,
     int Pending,
@@ -291,6 +359,19 @@ public sealed class GradeReviewItem
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
+public sealed class AssessmentPublicationItem
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public Guid TeacherId { get; set; }
+    public string CourseCode { get; set; } = string.Empty;
+    public string AssessmentName { get; set; } = string.Empty;
+    public string Status { get; set; } = "Draft";
+    public string ModerationNote { get; set; } = string.Empty;
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public DateTimeOffset? PublishedAtUtc { get; set; }
+}
+
 public sealed class ExamAuditLog
 {
     public Guid Id { get; set; }
@@ -318,6 +399,7 @@ public sealed class ExamDbContext(DbContextOptions<ExamDbContext> options) : DbC
 {
     public DbSet<StudentResult> StudentResults => Set<StudentResult>();
     public DbSet<GradeReviewItem> GradeReviews => Set<GradeReviewItem>();
+    public DbSet<AssessmentPublicationItem> AssessmentPublications => Set<AssessmentPublicationItem>();
     public DbSet<ExamAuditLog> AuditLogs => Set<ExamAuditLog>();
 }
 

@@ -1374,6 +1374,49 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
         }
     }
 
+    if (!await dbContext.AdmissionJourneyTemplates.AnyAsync())
+    {
+        dbContext.AdmissionJourneyTemplates.AddRange(
+        [
+            new AdmissionJourneyTemplate
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TemplateName = "Stale Application Follow-Up",
+                TriggerType = "StaleApplication",
+                Channel = "Email",
+                Subject = "Your University360 application is still active",
+                Body = "We noticed your application is waiting for the next step. Reply to this message and our admissions team will help you move forward today.",
+                IsActive = true,
+                SortOrder = 1
+            },
+            new AdmissionJourneyTemplate
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TemplateName = "Document Checklist Reminder",
+                TriggerType = "DocumentFollowUp",
+                Channel = "SMS",
+                Subject = "Pending admissions document",
+                Body = "Your application checklist still needs one more document. Upload it or reply here for help from the admissions desk.",
+                IsActive = true,
+                SortOrder = 2
+            },
+            new AdmissionJourneyTemplate
+            {
+                Id = Guid.NewGuid(),
+                TenantId = "default",
+                TemplateName = "Counseling Confirmation",
+                TriggerType = "CounselingScheduled",
+                Channel = "Email",
+                Subject = "Your counseling session is confirmed",
+                Body = "Your counseling slot is confirmed. Keep your questions, academic record, and scholarship queries ready for the session.",
+                IsActive = true,
+                SortOrder = 3
+            }
+        ]);
+    }
+
     if (!await dbContext.AdmissionReminders.AnyAsync())
     {
         var applications = await dbContext.AdmissionApplications.Where(x => x.TenantId == "default").OrderBy(x => x.CreatedAtUtc).Take(2).ToListAsync();
@@ -1576,6 +1619,19 @@ public sealed class AdmissionCommunication
     public string CreatedBy { get; set; } = string.Empty;
 }
 
+public sealed class AdmissionJourneyTemplate
+{
+    public Guid Id { get; set; }
+    public string TenantId { get; set; } = "default";
+    public string TemplateName { get; set; } = string.Empty;
+    public string TriggerType { get; set; } = string.Empty;
+    public string Channel { get; set; } = "Email";
+    public string Subject { get; set; } = string.Empty;
+    public string Body { get; set; } = string.Empty;
+    public bool IsActive { get; set; }
+    public int SortOrder { get; set; }
+}
+
 public sealed class AdmissionReminder
 {
     public Guid Id { get; set; }
@@ -1631,6 +1687,7 @@ public sealed class CommunicationDbContext(DbContextOptions<CommunicationDbConte
     public DbSet<CounselingSession> CounselingSessions => Set<CounselingSession>();
     public DbSet<ApplicationDocument> ApplicationDocuments => Set<ApplicationDocument>();
     public DbSet<AdmissionCommunication> AdmissionCommunications => Set<AdmissionCommunication>();
+    public DbSet<AdmissionJourneyTemplate> AdmissionJourneyTemplates => Set<AdmissionJourneyTemplate>();
     public DbSet<AdmissionReminder> AdmissionReminders => Set<AdmissionReminder>();
     public DbSet<HelpdeskTicket> HelpdeskTickets => Set<HelpdeskTicket>();
     public DbSet<AuditLogEntry> AuditLogs => Set<AuditLogEntry>();
@@ -1860,3 +1917,173 @@ public sealed record AdmissionsAutomationRunResult(
     IReadOnlyCollection<AdmissionReminder> CreatedReminders,
     IReadOnlyCollection<Notification> CreatedNotifications,
     AdmissionsAutomationMetrics Metrics);
+
+public sealed record AdmissionsCounselorWorkloadItem(
+    string CounselorName,
+    int ActiveApplications,
+    int ScheduledSessions,
+    int FollowUpsDue,
+    int TotalLoad,
+    string LoadStatus);
+
+public sealed record AdmissionsCounselorWorkloadSnapshot(
+    int TotalCounselors,
+    int Overloaded,
+    AdmissionsCounselorWorkloadItem[] Items);
+
+public static class AdmissionsCounselorWorkloadSummary
+{
+    private static readonly string[] DefaultCounselors = ["Ananya Rao", "Rahul George", "Leena Thomas"];
+
+    public static AdmissionsCounselorWorkloadSnapshot Create(
+        IReadOnlyCollection<AdmissionApplication> applications,
+        IReadOnlyCollection<CounselingSession> counselingSessions,
+        DateTimeOffset nowUtc)
+    {
+        var counselorNames = applications.Select(x => x.AssignedTo)
+            .Concat(counselingSessions.Select(x => x.CounselorName))
+            .Concat(DefaultCounselors)
+            .Where(x => !string.IsNullOrWhiteSpace(x) && !string.Equals(x, "Admissions Desk", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToArray();
+
+        var items = counselorNames.Select(name =>
+        {
+            var activeApplications = applications.Count(application =>
+                string.Equals(application.AssignedTo, name, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(application.Status, "Offered", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(application.Status, "Rejected", StringComparison.OrdinalIgnoreCase));
+            var scheduledSessions = counselingSessions.Count(session =>
+                string.Equals(session.CounselorName, name, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(session.Status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+                session.ScheduledAtUtc >= nowUtc.AddDays(-1));
+            var followUpsDue = applications.Count(application =>
+                string.Equals(application.AssignedTo, name, StringComparison.OrdinalIgnoreCase) &&
+                application.UpdatedAtUtc <= nowUtc.AddHours(-36));
+            var totalLoad = activeApplications + scheduledSessions + followUpsDue;
+            var loadStatus = totalLoad >= 6 ? "Overloaded" : totalLoad >= 4 ? "Busy" : "Balanced";
+            return new AdmissionsCounselorWorkloadItem(name, activeApplications, scheduledSessions, followUpsDue, totalLoad, loadStatus);
+        }).ToArray();
+
+        return new AdmissionsCounselorWorkloadSnapshot(items.Length, items.Count(item => item.LoadStatus == "Overloaded"), items);
+    }
+}
+
+public sealed record AdmissionsOutreachRunResult(
+    IReadOnlyCollection<AdmissionCommunication> CreatedCommunications,
+    IReadOnlyCollection<Notification> CreatedNotifications,
+    AdmissionsCounselorWorkloadSnapshot CounselorWorkloads,
+    int RebalancedApplications);
+
+public static class AdmissionsOutreachEngine
+{
+    public static AdmissionsOutreachRunResult Run(
+        string tenantId,
+        IReadOnlyCollection<AdmissionApplication> applications,
+        IReadOnlyCollection<ApplicationDocument> documents,
+        IReadOnlyCollection<AdmissionCommunication> communications,
+        IReadOnlyCollection<AdmissionReminder> reminders,
+        IReadOnlyCollection<CounselingSession> counselingSessions,
+        IReadOnlyCollection<AdmissionJourneyTemplate> templates,
+        DateTimeOffset nowUtc)
+    {
+        var createdCommunications = new List<AdmissionCommunication>();
+        var createdNotifications = new List<Notification>();
+        var rebalancedApplications = 0;
+        var workloads = AdmissionsCounselorWorkloadSummary.Create(applications, counselingSessions, nowUtc);
+        var mutableWorkloads = workloads.Items.ToDictionary(item => item.CounselorName, item => item.TotalLoad, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var application in applications.Where(item => string.IsNullOrWhiteSpace(item.AssignedTo) || string.Equals(item.AssignedTo, "Admissions Desk", StringComparison.OrdinalIgnoreCase)))
+        {
+            var leastLoaded = mutableWorkloads.OrderBy(item => item.Value).Select(item => item.Key).FirstOrDefault();
+            if (leastLoaded is null)
+            {
+                continue;
+            }
+
+            application.AssignedTo = leastLoaded;
+            application.UpdatedAtUtc = nowUtc;
+            mutableWorkloads[leastLoaded] += 1;
+            rebalancedApplications++;
+        }
+
+        var staleTemplate = templates.FirstOrDefault(item => string.Equals(item.TriggerType, "StaleApplication", StringComparison.OrdinalIgnoreCase));
+        foreach (var application in applications.Where(application => AdmissionsAutomationRules.IsApplicationStale(application, communications.Concat(createdCommunications).ToArray(), nowUtc)))
+        {
+            var alreadySent = communications.Any(item =>
+                item.ApplicationId == application.Id &&
+                item.TemplateName == staleTemplate?.TemplateName &&
+                item.CreatedAtUtc >= nowUtc.AddHours(-24));
+            if (alreadySent || staleTemplate is null)
+            {
+                continue;
+            }
+
+            createdCommunications.Add(new AdmissionCommunication
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ApplicationId = application.Id,
+                ApplicantName = application.ApplicantName,
+                Channel = staleTemplate.Channel,
+                TemplateName = staleTemplate.TemplateName,
+                Subject = staleTemplate.Subject,
+                Body = staleTemplate.Body,
+                Status = "Sent",
+                SentAtUtc = nowUtc,
+                CreatedAtUtc = nowUtc,
+                CreatedBy = "admissions-outreach-engine"
+            });
+        }
+
+        var documentTemplate = templates.FirstOrDefault(item => string.Equals(item.TriggerType, "DocumentFollowUp", StringComparison.OrdinalIgnoreCase));
+        foreach (var document in documents.Where(document => AdmissionsAutomationRules.RequiresDocumentFollowUp(document, reminders, nowUtc)))
+        {
+            var alreadySent = communications.Any(item =>
+                item.ApplicationId == document.ApplicationId &&
+                item.TemplateName == documentTemplate?.TemplateName &&
+                item.CreatedAtUtc >= nowUtc.AddHours(-24));
+            if (alreadySent || documentTemplate is null)
+            {
+                continue;
+            }
+
+            createdCommunications.Add(new AdmissionCommunication
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                ApplicationId = document.ApplicationId,
+                ApplicantName = document.ApplicantName,
+                Channel = documentTemplate.Channel,
+                TemplateName = documentTemplate.TemplateName,
+                Subject = documentTemplate.Subject,
+                Body = $"{documentTemplate.Body} Pending item: {document.DocumentType}.",
+                Status = "Sent",
+                SentAtUtc = nowUtc,
+                CreatedAtUtc = nowUtc,
+                CreatedBy = "admissions-outreach-engine"
+            });
+        }
+
+        if (createdCommunications.Count > 0 || rebalancedApplications > 0)
+        {
+            createdNotifications.Add(new Notification
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                Title = "Admissions outreach automation executed",
+                Message = $"{createdCommunications.Count} outreach items sent and {rebalancedApplications} applications balanced across counselors.",
+                Audience = "Admin",
+                CreatedAtUtc = nowUtc,
+                Source = "admissions-outreach"
+            });
+        }
+
+        return new AdmissionsOutreachRunResult(
+            createdCommunications,
+            createdNotifications,
+            AdmissionsCounselorWorkloadSummary.Create(applications, counselingSessions, nowUtc),
+            rebalancedApplications);
+    }
+}

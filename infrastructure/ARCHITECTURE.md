@@ -15,7 +15,7 @@
 - `identity-service`: tenant-aware authentication, refresh sessions, authorization-code exchange, federated provider hooks, passwordless delivery, TOTP MFA, and permission-bearing JWT issuance
 - `authorization-service`: centralized roles, permissions, user assignments, and route policy mappings
 - `academic-service`: curriculum, courses, credit units, semester scheduling, and faculty advising-note workflows
-- `organization-service`: colleges, campuses, departments, staff directory, public academic catalog ownership, and HR foundations such as employee master, leave, recruitment, and appraisal tracking
+- `organization-service`: colleges, campuses, departments, staff directory, public academic catalog ownership, HR foundations such as employee master, leave, recruitment, and appraisal tracking, plus governance workflows for facility operations, IRD projects, accreditation, RTI/legal, and incubation
 - `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload, teacher-scoped session control, and verification endpoints
 - `communication-service`: announcements, principal blogs, push notification orchestration, admissions document delivery workflows, and institute helpdesk ticketing
 - `exam-service`: assessment publication, GPA records, and teacher grading-review progression
@@ -67,7 +67,7 @@ To close the most visible product gaps without creating a parallel architecture,
 
 - `organization-service` now carries the live public organization catalog used by the website: colleges, campuses, departments, featured programs, and catalog summary metrics
 - `communication-service` carries public homepage content and inquiry capture: announcement feed, ticker items, admissions contact data, and inquiry workflow
-- `communication-service` now also owns admissions automation rules that flag stale applications and delayed checklist items into reminder/escalation work
+- `communication-service` now also owns admissions automation rules, journey templates, workload balancing, and outreach execution for stale applications and delayed checklist items
 - the web experience should consume those public endpoints directly so homepage sections are no longer maintained as disconnected static UI data
 - admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, applicant follow-ups, reminder queues, and public-content health next to existing audit and communication views
 - student-service should carry explicit request-fulfillment states so student and admin/mobile surfaces can share the same certificate and document-service workflow model
@@ -76,15 +76,19 @@ To close the most visible product gaps without creating a parallel architecture,
 - communication-service should carry upload and delivery metadata for applicant documents so verification and final handoff live in the same admissions workflow boundary
 - communication-service currently also carries the cross-department helpdesk queue as a shared support workflow boundary until a dedicated support-service extraction is warranted
 - organization-service now also carries the first HR operating slice because the ERP requirement set needs employee workflows beyond identity-only coverage
+- organization-service now also carries the first governance operating slice so facility, IRD, accreditation, RTI/legal, and incubation queues can be surfaced coherently without creating five separate thin services
 - finance-service now also carries the first stores and purchase slice so spend approval and inward supply risk are visible inside the existing financial control boundary
 - production-facing admin views should also surface federation and payment rollout readiness so release risk is not hidden inside appsettings only
+- teacher web/mobile experiences should consume LMS, attendance, and exam actions together so content-draft authoring, quick attendance capture, and publication control stay in one faculty workflow
+- admin web/mobile experiences should expose governance queues next to HR, procurement, admissions, and finance so institute operations do not fragment into hidden back-office APIs
 
 ## Near-Term Architectural Follow-Up
 
 The dedicated organization boundary is now extracted, but there is still follow-through work to finish:
 
 1. move academic catalog ownership fully to explicit program/course/offering integration contracts between `organization-service` and `academic-service`
-2. extend `communication-service` from SLA-style automation into fuller applicant journey orchestration and counselor workload balancing
+2. extend `communication-service` from the current templated and workload-balanced automation layer into fuller multi-step applicant journey orchestration
 3. complete live external federation and payment-provider rollout in real environments on top of the new readiness/reporting seams
 4. promote more of the public homepage contracts into gateway/BFF aggregation once the new organization boundary is the only source of truth
 5. continue decomposing the highest-change services away from one-file minimal-API startup composition
+6. evaluate whether the governance slice should remain inside `organization-service` or split once facility/legal/IRD depth grows beyond the current foundation stage

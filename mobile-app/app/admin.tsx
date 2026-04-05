@@ -22,6 +22,42 @@ type StudentRequestItem = {
   studentId?: string;
 };
 
+type FacilityWorkOrderItem = {
+  id: string;
+  title: string;
+  category: string;
+  status: string;
+  priority: string;
+  assignedTo: string;
+  dueAtUtc: string;
+};
+
+type ResearchProjectItem = {
+  id: string;
+  title: string;
+  status: string;
+  principalInvestigator: string;
+  complianceStatus: string;
+  milestoneDueAtUtc: string;
+};
+
+type LegalCaseItem = {
+  id: string;
+  title: string;
+  caseType: string;
+  status: string;
+  ownerName: string;
+  dueAtUtc: string;
+};
+
+type IncubationStartupItem = {
+  id: string;
+  startupName: string;
+  status: string;
+  mentorName: string;
+  reviewDueAtUtc: string;
+};
+
 type AdminState = {
   campuses: number;
   programs: number;
@@ -37,8 +73,17 @@ type AdminState = {
   pendingProcurementApproval: number;
   reorderAlerts: number;
   monthlyCommittedSpend: number;
+  openWorkOrders: number;
+  complianceDeadlines: number;
+  openLegalCases: number;
+  activeResearchProjects: number;
+  activeIncubations: number;
   followUps: FollowUpItem[];
   studentRequests: StudentRequestItem[];
+  facilityWorkOrders: FacilityWorkOrderItem[];
+  researchProjects: ResearchProjectItem[];
+  legalCases: LegalCaseItem[];
+  incubationStartups: IncubationStartupItem[];
   error: string | null;
 };
 
@@ -57,6 +102,11 @@ const demoState: AdminState = {
   pendingProcurementApproval: 1,
   reorderAlerts: 1,
   monthlyCommittedSpend: 309000,
+  openWorkOrders: 2,
+  complianceDeadlines: 3,
+  openLegalCases: 2,
+  activeResearchProjects: 2,
+  activeIncubations: 2,
   followUps: [
     {
       id: "communication-1",
@@ -90,6 +140,46 @@ const demoState: AdminState = {
       studentId: "00000000-0000-0000-0000-000000000123"
     }
   ],
+  facilityWorkOrders: [
+    {
+      id: "facility-1",
+      title: "Chiller plant preventive maintenance",
+      category: "Utilities",
+      status: "Scheduled",
+      priority: "High",
+      assignedTo: "Campus Engineering",
+      dueAtUtc: new Date(Date.now() + 3 * 86400000).toISOString()
+    }
+  ],
+  researchProjects: [
+    {
+      id: "project-1",
+      title: "AI-enabled crop resilience platform",
+      status: "Active",
+      principalInvestigator: "Dr. Priya Menon",
+      complianceStatus: "Report Due",
+      milestoneDueAtUtc: new Date(Date.now() + 10 * 86400000).toISOString()
+    }
+  ],
+  legalCases: [
+    {
+      id: "case-1",
+      title: "Scholarship allocation disclosure request",
+      caseType: "RTI",
+      status: "Response Drafting",
+      ownerName: "Registrar Office",
+      dueAtUtc: new Date(Date.now() + 4 * 86400000).toISOString()
+    }
+  ],
+  incubationStartups: [
+    {
+      id: "startup-1",
+      startupName: "CircuitNest",
+      status: "Mentoring",
+      mentorName: "Prof. Rohan Iyer",
+      reviewDueAtUtc: new Date(Date.now() + 6 * 86400000).toISOString()
+    }
+  ],
   error: null
 };
 
@@ -114,7 +204,7 @@ export default function AdminMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse, hrSummaryResponse, procurementSummaryResponse] = await Promise.all([
+        const [organizationResponse, admissionsResponse, communicationsResponse, remindersResponse, requestsResponse, financeResponse, hrSummaryResponse, procurementSummaryResponse, governanceResponse, facilityResponse, researchResponse, legalResponse, incubationResponse] = await Promise.all([
           fetch(`${apiConfig.organization()}/api/v1/catalog/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/summary`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=3`, { headers }),
@@ -122,14 +212,19 @@ export default function AdminMobilePage() {
           fetch(`${apiConfig.student()}/api/v1/requests?pageSize=3`, { headers }),
           fetch(`${apiConfig.finance()}/api/v1/payments/summary`, { headers }),
           fetch(`${apiConfig.organization()}/api/v1/hr/summary`, { headers }),
-          fetch(`${apiConfig.finance()}/api/v1/procurement/summary`, { headers })
+          fetch(`${apiConfig.finance()}/api/v1/procurement/summary`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/governance/summary`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/facility/work-orders?pageSize=2`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/ird/projects?pageSize=2`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/legal/cases?pageSize=2`, { headers }),
+          fetch(`${apiConfig.organization()}/api/v1/incubation/startups?pageSize=2`, { headers })
         ]);
 
-        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok || !hrSummaryResponse.ok || !procurementSummaryResponse.ok) {
+        if (!organizationResponse.ok || !admissionsResponse.ok || !communicationsResponse.ok || !remindersResponse.ok || !requestsResponse.ok || !financeResponse.ok || !hrSummaryResponse.ok || !procurementSummaryResponse.ok || !governanceResponse.ok || !facilityResponse.ok || !researchResponse.ok || !legalResponse.ok || !incubationResponse.ok) {
           throw new Error("Admin mobile workspace is unavailable.");
         }
 
-        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance, hrSummary, procurementSummary] = await Promise.all([
+        const [organization, admissions, communicationsPayload, remindersPayload, requestsPayload, finance, hrSummary, procurementSummary, governanceSummary, facilityPayload, researchPayload, legalPayload, incubationPayload] = await Promise.all([
           organizationResponse.json(),
           admissionsResponse.json(),
           communicationsResponse.json(),
@@ -137,7 +232,12 @@ export default function AdminMobilePage() {
           requestsResponse.json(),
           financeResponse.json(),
           hrSummaryResponse.json(),
-          procurementSummaryResponse.json()
+          procurementSummaryResponse.json(),
+          governanceResponse.json(),
+          facilityResponse.json(),
+          researchResponse.json(),
+          legalResponse.json(),
+          incubationResponse.json()
         ]);
         const followUps: FollowUpItem[] = [
           ...((communicationsPayload?.items ?? []) as Array<{ id: string; applicantName: string; subject: string; channel: string; status: string }>).map((item) => ({
@@ -168,8 +268,17 @@ export default function AdminMobilePage() {
           pendingProcurementApproval: procurementSummary?.pendingApproval ?? 0,
           reorderAlerts: procurementSummary?.reorderAlerts ?? 0,
           monthlyCommittedSpend: procurementSummary?.monthlyCommittedSpend ?? 0,
+          openWorkOrders: governanceSummary?.openWorkOrders ?? 0,
+          complianceDeadlines: governanceSummary?.complianceDeadlines ?? 0,
+          openLegalCases: governanceSummary?.openRtiCases ?? 0,
+          activeResearchProjects: governanceSummary?.activeProjects ?? 0,
+          activeIncubations: governanceSummary?.activeIncubations ?? 0,
           followUps,
           studentRequests: requestsPayload?.items ?? [],
+          facilityWorkOrders: facilityPayload?.items ?? [],
+          researchProjects: researchPayload?.items ?? [],
+          legalCases: legalPayload?.items ?? [],
+          incubationStartups: incubationPayload?.items ?? [],
           error: null
         });
       })
@@ -189,7 +298,11 @@ export default function AdminMobilePage() {
     { label: "Leave Approvals", value: state.pendingLeaveRequests.toString() },
     { label: "Recruitment", value: state.openRecruitment.toString() },
     { label: "Procurement", value: state.pendingProcurementApproval.toString() },
-    { label: "Reorder Alerts", value: state.reorderAlerts.toString() }
+    { label: "Reorder Alerts", value: state.reorderAlerts.toString() },
+    { label: "Facility", value: state.openWorkOrders.toString() },
+    { label: "Compliance", value: state.complianceDeadlines.toString() },
+    { label: "Legal", value: state.openLegalCases.toString() },
+    { label: "Incubation", value: state.activeIncubations.toString() }
   ];
 
   async function updateStudentRequestStatus(item: StudentRequestItem, status: string) {
@@ -247,6 +360,68 @@ export default function AdminMobilePage() {
     }
   }
 
+  async function updateGovernanceStatus(kind: "facility" | "project" | "legal" | "startup", id: string, status: string) {
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          facilityWorkOrders: kind === "facility" ? current.facilityWorkOrders.map((item) => (item.id === id ? { ...item, status } : item)) : current.facilityWorkOrders,
+          researchProjects: kind === "project" ? current.researchProjects.map((item) => (item.id === id ? { ...item, status } : item)) : current.researchProjects,
+          legalCases: kind === "legal" ? current.legalCases.map((item) => (item.id === id ? { ...item, status } : item)) : current.legalCases,
+          incubationStartups: kind === "startup" ? current.incubationStartups.map((item) => (item.id === id ? { ...item, status } : item)) : current.incubationStartups
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const url =
+        kind === "facility"
+          ? `${apiConfig.organization()}/api/v1/facility/work-orders/${id}/status`
+          : kind === "project"
+            ? `${apiConfig.organization()}/api/v1/ird/projects/${id}/status`
+            : kind === "legal"
+              ? `${apiConfig.organization()}/api/v1/legal/cases/${id}/status`
+              : `${apiConfig.organization()}/api/v1/incubation/startups/${id}/status`;
+
+      const body =
+        kind === "facility"
+          ? { status, assignedTo: "Mobile Ops Desk", note: "Updated from admin mobile." }
+          : kind === "project"
+            ? { status, ownerName: "Mobile Governance Desk", complianceStatus: status === "Completed" ? "Closed" : "Report Due", note: "Updated from admin mobile." }
+            : kind === "legal"
+              ? { status, ownerName: "Mobile Governance Desk", note: "Updated from admin mobile." }
+              : { status, mentorName: "Mobile Incubation Desk", note: "Updated from admin mobile." };
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update governance item.");
+      }
+
+      const payload = await response.json();
+      setState((current) => ({
+        ...current,
+        facilityWorkOrders: kind === "facility" ? current.facilityWorkOrders.map((item) => (item.id === id ? { ...item, ...payload } : item)) : current.facilityWorkOrders,
+        researchProjects: kind === "project" ? current.researchProjects.map((item) => (item.id === id ? { ...item, ...payload } : item)) : current.researchProjects,
+        legalCases: kind === "legal" ? current.legalCases.map((item) => (item.id === id ? { ...item, ...payload } : item)) : current.legalCases,
+        incubationStartups: kind === "startup" ? current.incubationStartups.map((item) => (item.id === id ? { ...item, ...payload } : item)) : current.incubationStartups
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Governance update is unavailable right now."
+      }));
+    }
+  }
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#07111f" }}>
       <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
@@ -285,6 +460,19 @@ export default function AdminMobilePage() {
           </Text>
         </AnimatedSurface>
 
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 260, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(34, 197, 94, 0.10)", borderWidth: 1, borderColor: "rgba(134, 239, 172, 0.18)" }}
+        >
+          <Text style={{ color: "#dcfce7", fontSize: 13 }}>Governance and Infrastructure</Text>
+          <Text style={{ color: "#fff7ed", fontSize: 20, fontWeight: "700", marginTop: 8 }}>{state.openWorkOrders} facility items | {state.activeResearchProjects} IRD projects</Text>
+          <Text style={{ color: "#bbf7d0", marginTop: 10 }}>
+            {state.complianceDeadlines} compliance deadlines, {state.openLegalCases} legal or RTI matters, and {state.activeIncubations} incubation ventures are now visible on mobile too.
+          </Text>
+        </AnimatedSurface>
+
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
           {cards.map((card, index) => (
             <AnimatedSurface
@@ -303,7 +491,7 @@ export default function AdminMobilePage() {
         <AnimatedSurface
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ delay: 260, type: "timing", duration: 450 }}
+          transition={{ delay: 320, type: "timing", duration: 450 }}
           style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
         >
           <Text style={{ color: "#f5d0fe", fontSize: 13 }}>Recent Follow-Up Activity</Text>
@@ -327,7 +515,7 @@ export default function AdminMobilePage() {
         <AnimatedSurface
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ delay: 320, type: "timing", duration: 450 }}
+          transition={{ delay: 380, type: "timing", duration: 450 }}
           style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
         >
           <Text style={{ color: "#f5d0fe", fontSize: 13 }}>Student Request Fulfillment</Text>
@@ -361,6 +549,80 @@ export default function AdminMobilePage() {
                 <Text style={{ color: "#d8b4fe", marginTop: 6 }}>Certificate and service approvals will appear here once students raise them.</Text>
               </View>
             ) : null}
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 440, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <Text style={{ color: "#f5d0fe", fontSize: 13 }}>Governance Queues</Text>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.facilityWorkOrders.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#fbcfe8", marginTop: 6 }}>{item.category} | {item.status}</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>{item.priority} priority | due {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(item.dueAtUtc))}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable onPress={() => updateGovernanceStatus("facility", item.id, "In Progress")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>Dispatch</Text>
+                  </Pressable>
+                  <Pressable onPress={() => updateGovernanceStatus("facility", item.id, "Completed")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(187, 247, 208, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>Complete</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+
+            {state.researchProjects.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#fbcfe8", marginTop: 6 }}>{item.status} | {item.principalInvestigator}</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>{item.complianceStatus} | milestone {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(item.milestoneDueAtUtc))}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable onPress={() => updateGovernanceStatus("project", item.id, "Sponsor Review")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>Review</Text>
+                  </Pressable>
+                  <Pressable onPress={() => updateGovernanceStatus("project", item.id, "Completed")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(187, 247, 208, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>Close</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+
+            {state.legalCases.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#fbcfe8", marginTop: 6 }}>{item.caseType} | {item.status}</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>{item.ownerName} | due {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(item.dueAtUtc))}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable onPress={() => updateGovernanceStatus("legal", item.id, "Counsel Review")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(251, 113, 133, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#fecdd3", fontWeight: "700", textAlign: "center" }}>Escalate</Text>
+                  </Pressable>
+                  <Pressable onPress={() => updateGovernanceStatus("legal", item.id, "Closed")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(187, 247, 208, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>Close</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+
+            {state.incubationStartups.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#fff7ed", fontSize: 16, fontWeight: "700" }}>{item.startupName}</Text>
+                <Text style={{ color: "#fbcfe8", marginTop: 6 }}>{item.mentorName} | {item.status}</Text>
+                <Text style={{ color: "#d8b4fe", marginTop: 8, fontSize: 12 }}>Review {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(item.reviewDueAtUtc))}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable onPress={() => updateGovernanceStatus("startup", item.id, "Investor Readiness")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(167, 139, 250, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#ddd6fe", fontWeight: "700", textAlign: "center" }}>Advance</Text>
+                  </Pressable>
+                  <Pressable onPress={() => updateGovernanceStatus("startup", item.id, "Graduated")} style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(187, 247, 208, 0.16)", paddingHorizontal: 12, paddingVertical: 12 }}>
+                    <Text style={{ color: "#dcfce7", fontWeight: "700", textAlign: "center" }}>Graduate</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
           </View>
         </AnimatedSurface>
       </ScrollView>

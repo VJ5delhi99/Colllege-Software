@@ -50,6 +50,25 @@ type AdvisingNoteItem = {
   createdAtUtc: string;
 };
 
+type ContentDraftItem = {
+  id: string;
+  courseCode: string;
+  draftType: string;
+  title: string;
+  status: string;
+  updatedAtUtc: string;
+};
+
+type AssessmentPublicationItem = {
+  id: string;
+  courseCode: string;
+  assessmentName: string;
+  status: string;
+  moderationNote: string;
+  updatedAtUtc: string;
+  publishedAtUtc?: string | null;
+};
+
 type TeacherState = {
   attendancePercentage: number;
   totalCourses: number;
@@ -65,6 +84,8 @@ type TeacherState = {
   alerts: AttendanceAlert[];
   sessions: AttendanceSessionItem[];
   gradeReviews: GradeReviewItem[];
+  contentDrafts: ContentDraftItem[];
+  publishingQueue: AssessmentPublicationItem[];
   advisingNotes: AdvisingNoteItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
 };
@@ -96,6 +117,14 @@ const demoState: TeacherState = {
   gradeReviews: [
     { id: "grade-1", studentName: "Aarav Sharma", courseCode: "CSE401", assessmentName: "Lab Evaluation 1", status: "Pending Review", reviewerNote: "Need to double-check the replication diagram rubric." },
     { id: "grade-2", studentName: "Aarav Sharma", courseCode: "PHY201", assessmentName: "Internal Quiz 2", status: "Ready To Publish", reviewerNote: "Moderation completed." }
+  ],
+  contentDrafts: [
+    { id: "draft-1", courseCode: "CSE401", draftType: "Module Outline", title: "Week 5 replication patterns", status: "Draft", updatedAtUtc: "2026-04-04T10:00:00Z" },
+    { id: "draft-2", courseCode: "PHY201", draftType: "Assessment Brief", title: "Internal quiz moderation notes", status: "Review Ready", updatedAtUtc: "2026-04-05T08:00:00Z" }
+  ],
+  publishingQueue: [
+    { id: "publish-1", courseCode: "CSE401", assessmentName: "Midterm Rubric", status: "Moderation Review", moderationNote: "Waiting for final rubric sign-off.", updatedAtUtc: "2026-04-04T12:00:00Z" },
+    { id: "publish-2", courseCode: "PHY201", assessmentName: "Internal Quiz 2", status: "Ready To Publish", moderationNote: "Moderation completed and board-ready.", updatedAtUtc: "2026-04-05T09:00:00Z" }
   ],
   advisingNotes: [
     { id: "note-1", studentName: "Aarav Sharma", courseCode: "PHY201", title: "Attendance recovery plan", note: "Student should attend the next two lab sessions and submit the missed worksheet.", followUpStatus: "Open", createdAtUtc: "2026-04-03T09:30:00Z" },
@@ -151,28 +180,32 @@ export default function TeacherPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse] = await Promise.all([
+        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers }),
           fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/grading-summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers }),
-          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=6`, { headers })
+          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=6`, { headers }),
+          fetch(`${apiConfig.lms()}/api/v1/teachers/${session.user.id}/content-drafts`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue`, { headers })
         ]);
 
-        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok) {
+        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok) {
           throw new Error("Unable to load the teacher workspace.");
         }
 
-        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload, sessionsPayload] = await Promise.all([
+        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload, sessionsPayload, draftsPayload, publishingPayload] = await Promise.all([
           teacherSummaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
           notificationsResponse.json(),
           gradingResponse.json(),
           advisingResponse.json(),
-          sessionsResponse.json()
+          sessionsResponse.json(),
+          draftsResponse.json(),
+          publishingResponse.json()
         ]);
 
         const ownedCourses = (coursesPayload?.items ?? []) as CourseItem[];
@@ -199,6 +232,8 @@ export default function TeacherPage() {
             alerts: (attendancePayload?.alerts ?? []) as AttendanceAlert[],
             sessions: (sessionsPayload?.items ?? []) as AttendanceSessionItem[],
             gradeReviews: (gradingPayload?.items ?? []) as GradeReviewItem[],
+            contentDrafts: (draftsPayload?.items ?? []) as ContentDraftItem[],
+            publishingQueue: (publishingPayload?.items ?? []) as AssessmentPublicationItem[],
             advisingNotes: (advisingPayload?.items ?? []) as AdvisingNoteItem[],
             notifications: notificationsPayload?.items ?? []
           });
@@ -381,6 +416,151 @@ export default function TeacherPage() {
     }
   }
 
+  async function quickCaptureAttendance(item: AttendanceSessionItem) {
+    setBusyId(`capture-${item.id}`);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          alerts: current.alerts.map((alert) =>
+            alert.courseCode === item.courseCode
+              ? { ...alert, totalRecords: alert.totalRecords + 1, percentage: Math.min(100, Number((alert.percentage + 8).toFixed(2))) }
+              : alert
+          )
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions/${item.id}/quick-record`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          studentId: "00000000-0000-0000-0000-000000000123",
+          status: "Present",
+          method: "Manual"
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Unable to capture attendance.");
+      }
+
+      setState((current) => ({
+        ...current,
+        alerts: current.alerts.map((alert) =>
+          alert.courseCode === item.courseCode
+            ? { ...alert, totalRecords: alert.totalRecords + 1, percentage: Math.min(100, Number((alert.percentage + 8).toFixed(2))) }
+            : alert
+        )
+      }));
+      setError(null);
+    } catch (captureError) {
+      setError(captureError instanceof Error ? captureError.message : "Unable to capture attendance.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function createContentDraft(courseCode: string, draftType: string, title: string) {
+    setBusyId(`${draftType}-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const item: ContentDraftItem = {
+          id: `draft-${Date.now()}`,
+          courseCode,
+          draftType,
+          title,
+          status: "Draft",
+          updatedAtUtc: new Date().toISOString()
+        };
+        setState((current) => ({ ...current, contentDrafts: [item, ...current.contentDrafts].slice(0, 5) }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.lms()}/api/v1/teachers/${session.user.id}/content-drafts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          draftType,
+          title
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create content draft.");
+      }
+
+      const payload = (await response.json()) as ContentDraftItem;
+      setState((current) => ({ ...current, contentDrafts: [payload, ...current.contentDrafts].slice(0, 5) }));
+      setError(null);
+    } catch (draftError) {
+      setError(draftError instanceof Error ? draftError.message : "Unable to create content draft.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updatePublishingQueue(item: AssessmentPublicationItem, status: string) {
+    setBusyId(`publish-${item.id}`);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          publishingQueue: current.publishingQueue.map((entry) =>
+            entry.id === item.id ? { ...entry, status, updatedAtUtc: new Date().toISOString() } : entry
+          )
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          moderationNote: status === "Published" ? "Published from the teacher workspace." : "Moved through the publication queue from teacher workspace."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update publishing queue.");
+      }
+
+      const payload = (await response.json()) as AssessmentPublicationItem;
+      setState((current) => ({
+        ...current,
+        publishingQueue: current.publishingQueue.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry))
+      }));
+      setError(null);
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : "Unable to update publishing queue.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function addAdvisingNote(courseCode: string, title: string, note: string) {
     setBusyId(title);
 
@@ -544,6 +724,22 @@ export default function TeacherPage() {
                   {busyId === `start-${course.id}` ? "Starting..." : `Start ${course.courseCode}`}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => createContentDraft("CSE401", "Module Outline", "New distributed systems module outline")}
+                disabled={busyId === "Module Outline-CSE401"}
+                className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+              >
+                {busyId === "Module Outline-CSE401" ? "Saving..." : "Create Module Draft"}
+              </button>
+              <button
+                type="button"
+                onClick={() => createContentDraft("PHY201", "Assessment Brief", "New physics assessment brief")}
+                disabled={busyId === "Assessment Brief-PHY201"}
+                className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-fuchsia-100 disabled:opacity-50"
+              >
+                {busyId === "Assessment Brief-PHY201" ? "Saving..." : "Create Assessment Draft"}
+              </button>
             </div>
             <div className="mt-5 space-y-4">
               {state.alerts.map((item) => (
@@ -569,6 +765,14 @@ export default function TeacherPage() {
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       type="button"
+                      onClick={() => quickCaptureAttendance(item)}
+                      disabled={busyId === `capture-${item.id}` || item.status !== "Active"}
+                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                    >
+                      {busyId === `capture-${item.id}` ? "Capturing..." : "Capture Check-In"}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => closeAttendanceSession(item)}
                       disabled={busyId === item.id || item.status === "Closed"}
                       className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
@@ -576,6 +780,18 @@ export default function TeacherPage() {
                       {busyId === item.id ? "Updating..." : "Close Session"}
                     </button>
                   </div>
+                </article>
+              ))}
+            </div>
+            <div className="mt-5 space-y-4">
+              {state.contentDrafts.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.courseCode} | {item.draftType}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-emerald-200">Updated {formatTimestamp(item.updatedAtUtc)}</p>
                 </article>
               ))}
             </div>
@@ -615,6 +831,36 @@ export default function TeacherPage() {
                       className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
                     >
                       {busyId === item.id ? "Updating..." : "Publish"}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="mt-6 space-y-4">
+              {state.publishingQueue.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.assessmentName}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{item.courseCode}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.moderationNote}</p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updatePublishingQueue(item, "Ready To Publish")}
+                      disabled={busyId === `publish-${item.id}` || item.status === "Ready To Publish" || item.status === "Published"}
+                      className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
+                    >
+                      {busyId === `publish-${item.id}` ? "Updating..." : "Move Ready"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updatePublishingQueue(item, "Published")}
+                      disabled={busyId === `publish-${item.id}` || item.status === "Published"}
+                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                    >
+                      {busyId === `publish-${item.id}` ? "Updating..." : "Publish Packet"}
                     </button>
                   </div>
                 </article>

@@ -109,6 +109,91 @@ public sealed class WorkflowCoverageTests
     }
 
     [Fact]
+    public void AdmissionsCounselorWorkloadSummary_FlagsBusyAndBalancedCounselors()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        var summary = AdmissionsCounselorWorkloadSummary.Create(
+            [
+                new AdmissionApplication { AssignedTo = "Ananya Rao", Status = "Submitted", UpdatedAtUtc = nowUtc.AddDays(-2) },
+                new AdmissionApplication { AssignedTo = "Ananya Rao", Status = "Under Review", UpdatedAtUtc = nowUtc.AddHours(-10) },
+                new AdmissionApplication { AssignedTo = "Rahul George", Status = "Qualified", UpdatedAtUtc = nowUtc.AddHours(-8) }
+            ],
+            [
+                new CounselingSession { CounselorName = "Ananya Rao", Status = "Scheduled", ScheduledAtUtc = nowUtc.AddHours(4) }
+            ],
+            nowUtc);
+
+        summary.TotalCounselors.Should().BeGreaterThan(1);
+        summary.Items.Should().Contain(item => item.CounselorName == "Ananya Rao" && item.TotalLoad >= 3);
+        summary.Items.Should().Contain(item => item.CounselorName == "Rahul George");
+    }
+
+    [Fact]
+    public void AdmissionsOutreachEngine_CreatesTemplateDrivenCommunicationAndBalancesAssignments()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        var applicationId = Guid.NewGuid();
+        var run = AdmissionsOutreachEngine.Run(
+            "default",
+            [
+                new AdmissionApplication
+                {
+                    Id = applicationId,
+                    ApplicantName = "Riya Menon",
+                    AssignedTo = "Ananya Rao",
+                    Status = "Submitted",
+                    UpdatedAtUtc = nowUtc.AddDays(-3)
+                }
+            ],
+            [],
+            [],
+            [],
+            [],
+            [
+                new AdmissionJourneyTemplate { TemplateName = "Stale Application Follow-Up", TriggerType = "StaleApplication", Channel = "Email", Subject = "Follow up", Body = "Body", IsActive = true },
+                new AdmissionJourneyTemplate { TemplateName = "Document Checklist Reminder", TriggerType = "DocumentFollowUp", Channel = "SMS", Subject = "Docs", Body = "Body", IsActive = true }
+            ],
+            nowUtc);
+
+        run.CreatedCommunications.Should().HaveCount(1);
+        run.CreatedCommunications.First().TemplateName.Should().Be("Stale Application Follow-Up");
+        run.RebalancedApplications.Should().Be(0);
+    }
+
+    [Fact]
+    public void GovernanceOperationsSummary_CountsFacilityResearchComplianceAndIncubationSignals()
+    {
+        var summary = GovernanceOperationsSummary.Create(
+            [
+                new FacilityWorkOrder { Status = "Scheduled", AmcStatus = "Expiring Soon" },
+                new FacilityWorkOrder { Status = "Completed", AmcStatus = "Healthy" }
+            ],
+            [
+                new ResearchProject { Status = "Active", ComplianceStatus = "Report Due" },
+                new ResearchProject { Status = "Completed", ComplianceStatus = "Closed" }
+            ],
+            [
+                new AccreditationInitiative { Status = "Evidence Collection", DueAtUtc = DateTimeOffset.UtcNow.AddDays(5) },
+                new AccreditationInitiative { Status = "Closed", DueAtUtc = DateTimeOffset.UtcNow.AddDays(30) }
+            ],
+            [
+                new LegalCaseItem { Status = "Response Drafting" },
+                new LegalCaseItem { Status = "Closed" }
+            ],
+            [
+                new IncubationStartup { Status = "Mentoring" },
+                new IncubationStartup { Status = "Graduated" }
+            ]);
+
+        summary.OpenWorkOrders.Should().Be(1);
+        summary.AmcExpiring.Should().Be(1);
+        summary.ActiveProjects.Should().Be(1);
+        summary.ComplianceDeadlines.Should().Be(2);
+        summary.OpenRtiCases.Should().Be(1);
+        summary.ActiveIncubations.Should().Be(1);
+    }
+
+    [Fact]
     public void PaymentGatewayCatalog_ExposesOnlyEnabledReadyProviders()
     {
         var configuration = new ConfigurationBuilder()
@@ -262,6 +347,25 @@ public sealed class WorkflowCoverageTests
         summary.PurchaseOrdersOpen.Should().Be(1);
         summary.ReorderAlerts.Should().Be(1);
         summary.MonthlyCommittedSpend.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void AssessmentPublicationItem_RetainsPublishingMetadata()
+    {
+        var updatedAtUtc = DateTimeOffset.UtcNow;
+        var item = new AssessmentPublicationItem
+        {
+            CourseCode = "PHY201",
+            AssessmentName = "Internal Quiz 2",
+            Status = "Ready To Publish",
+            ModerationNote = "Board reviewed",
+            UpdatedAtUtc = updatedAtUtc
+        };
+
+        item.AssessmentName.Should().Be("Internal Quiz 2");
+        item.Status.Should().Be("Ready To Publish");
+        item.ModerationNote.Should().Be("Board reviewed");
+        item.UpdatedAtUtc.Should().Be(updatedAtUtc);
     }
 
     [Fact]

@@ -23,6 +23,8 @@ type ServiceRequestItem = {
   assignedTo?: string;
   resolutionNote?: string;
   fulfillmentReference?: string;
+  deliveryChannel?: string;
+  downloadUrl?: string;
   requestedAtUtc: string;
   resolvedAtUtc?: string | null;
 };
@@ -103,6 +105,8 @@ const demoState: StudentState = {
       assignedTo: "Examination Cell",
       resolutionNote: "Printed transcript is available at the examination counter.",
       fulfillmentReference: "CERT-2026-1004",
+      deliveryChannel: "Portal Download",
+      downloadUrl: "https://student-documents.university360.local/download/transcript/CERT-2026-1004",
       requestedAtUtc: "2026-04-02T09:00:00Z",
       resolvedAtUtc: "2026-04-04T14:00:00Z"
     }
@@ -641,6 +645,8 @@ export default function StudentPage() {
                   {item.assignedTo ? <p className="mt-2 text-sm leading-6 text-slate-400">Assigned to: {item.assignedTo}</p> : null}
                   {item.resolutionNote ? <p className="mt-2 text-sm leading-6 text-emerald-200">{item.resolutionNote}</p> : null}
                   {item.fulfillmentReference ? <p className="mt-2 text-sm leading-6 text-cyan-200">Reference: {item.fulfillmentReference}</p> : null}
+                  {item.deliveryChannel ? <p className="mt-2 text-sm leading-6 text-cyan-200">Delivery: {item.deliveryChannel}</p> : null}
+                  {item.downloadUrl ? <p className="mt-2 break-all text-sm leading-6 text-slate-400">{item.downloadUrl}</p> : null}
                   <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.requestedAtUtc)}</p>
                   {item.resolvedAtUtc ? <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200">Resolved {formatTimestamp(item.resolvedAtUtc)}</p> : null}
                 </article>

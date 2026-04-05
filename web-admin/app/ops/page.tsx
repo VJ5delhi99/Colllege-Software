@@ -134,6 +134,24 @@ type ReminderItem = {
   notes: string;
 };
 
+type JourneyTemplateItem = {
+  id: string;
+  templateName: string;
+  triggerType: string;
+  channel: string;
+  subject: string;
+  isActive: boolean;
+};
+
+type CounselorWorkloadItem = {
+  counselorName: string;
+  activeApplications: number;
+  scheduledSessions: number;
+  followUpsDue: number;
+  totalLoad: number;
+  loadStatus: string;
+};
+
 type HelpdeskSummary = {
   total: number;
   open: number;
@@ -334,6 +352,16 @@ const demoReminders: ReminderItem[] = [
   }
 ];
 
+const demoJourneyTemplates: JourneyTemplateItem[] = [
+  { id: "template-1", templateName: "Stale Application Follow-Up", triggerType: "StaleApplication", channel: "Email", subject: "Your University360 application is still active", isActive: true },
+  { id: "template-2", templateName: "Document Checklist Reminder", triggerType: "DocumentFollowUp", channel: "SMS", subject: "Pending admissions document", isActive: true }
+];
+
+const demoCounselorWorkloads: CounselorWorkloadItem[] = [
+  { counselorName: "Ananya Rao", activeApplications: 2, scheduledSessions: 1, followUpsDue: 1, totalLoad: 4, loadStatus: "Busy" },
+  { counselorName: "Rahul George", activeApplications: 1, scheduledSessions: 0, followUpsDue: 0, totalLoad: 1, loadStatus: "Balanced" }
+];
+
 const demoHelpdeskSummary: HelpdeskSummary = {
   total: 2,
   open: 1,
@@ -436,6 +464,8 @@ export default function OperationsPage() {
   const [documents, setDocuments] = useState<PendingDocumentItem[]>([]);
   const [communications, setCommunications] = useState<CommunicationItem[]>([]);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [journeyTemplates, setJourneyTemplates] = useState<JourneyTemplateItem[]>([]);
+  const [counselorWorkloads, setCounselorWorkloads] = useState<CounselorWorkloadItem[]>([]);
   const [helpdeskSummary, setHelpdeskSummary] = useState<HelpdeskSummary>(demoHelpdeskSummary);
   const [helpdeskTickets, setHelpdeskTickets] = useState<HelpdeskTicketItem[]>([]);
   const [inquirySummary, setInquirySummary] = useState<InquirySummary>({ total: 0, newItems: 0, inReview: 0, latest: null });
@@ -460,6 +490,8 @@ export default function OperationsPage() {
             setDocuments(demoDocuments);
             setCommunications(demoCommunications);
             setReminders(demoReminders);
+            setJourneyTemplates(demoJourneyTemplates);
+            setCounselorWorkloads(demoCounselorWorkloads);
             setHelpdeskSummary(demoHelpdeskSummary);
             setHelpdeskTickets(demoHelpdeskTickets);
             setInquirySummary(summarizeAdmissions(demoInquiries, demoApplications, demoCounselingSessions, demoDocuments, demoCommunications, demoReminders));
@@ -479,7 +511,7 @@ export default function OperationsPage() {
         const canViewAttendance = session.permissions.includes("attendance.view");
         const canViewResults = session.permissions.includes("results.view");
 
-        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, communicationsPayload, remindersPayload, admissionsSummaryPayload, helpdeskSummaryPayload, helpdeskTicketsPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
+        const [notificationsPayload, admissionsPayload, applicationsPayload, counselingPayload, documentsPayload, communicationsPayload, remindersPayload, admissionsSummaryPayload, templatesPayload, counselorPayload, helpdeskSummaryPayload, helpdeskTicketsPayload, communicationAuditPayload, studentAuditPayload, academicAuditPayload, examAuditPayload, financeAuditPayload, attendanceAuditPayload, identityAuditPayload] = await Promise.all([
           loadOptionalJson(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/inquiries?pageSize=8`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/applications?pageSize=8`, headers, canCreateAnnouncements),
@@ -488,6 +520,8 @@ export default function OperationsPage() {
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/reminders?pageSize=6`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/summary`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/templates`, headers, canCreateAnnouncements),
+          loadOptionalJson(`${apiConfig.communication()}/api/v1/admissions/counselor-workloads`, headers, canCreateAnnouncements),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/helpdesk/summary`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/helpdesk/tickets?pageSize=6`, headers, true),
           loadOptionalJson(`${apiConfig.communication()}/api/v1/audit-logs?pageSize=10`, headers, canCreateAnnouncements),
@@ -525,6 +559,8 @@ export default function OperationsPage() {
           setDocuments(nextDocuments);
           setCommunications(nextCommunications);
           setReminders(nextReminders);
+          setJourneyTemplates((templatesPayload?.items ?? []) as JourneyTemplateItem[]);
+          setCounselorWorkloads((counselorPayload?.items ?? []) as CounselorWorkloadItem[]);
           setHelpdeskSummary((helpdeskSummaryPayload ?? demoHelpdeskSummary) as HelpdeskSummary);
           setHelpdeskTickets((helpdeskTicketsPayload?.items ?? []) as HelpdeskTicketItem[]);
           setInquirySummary({
@@ -1142,6 +1178,78 @@ export default function OperationsPage() {
     }
   }
 
+  async function runOutreachAutomation() {
+    if (demoMode) {
+      const nextCommunications = [
+        {
+          id: `communication-${Date.now()}`,
+          applicationId: applications[0]?.id ?? "application-1",
+          applicantName: applications[0]?.applicantName ?? "Riya Menon",
+          channel: "Email",
+          templateName: "Stale Application Follow-Up",
+          subject: "Your University360 application is still active",
+          body: "Automation created an outreach reminder from the operations hub.",
+          status: "Sent",
+          createdAtUtc: new Date().toISOString()
+        },
+        ...communications
+      ];
+      setCommunications(nextCommunications);
+      setCounselorWorkloads(demoCounselorWorkloads);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, documents, nextCommunications, reminders));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId("outreach-run");
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/outreach/run`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to run admissions outreach automation.");
+      }
+
+      const [communicationsPayload, counselorPayload] = await Promise.all([
+        fetch(`${apiConfig.communication()}/api/v1/admissions/communications?pageSize=6`, {
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            "X-Tenant-Id": session.user.tenantId
+          }
+        }),
+        fetch(`${apiConfig.communication()}/api/v1/admissions/counselor-workloads`, {
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            "X-Tenant-Id": session.user.tenantId
+          }
+        })
+      ]);
+
+      if (communicationsPayload.ok) {
+        const payload = await communicationsPayload.json();
+        const nextCommunications = (payload?.items ?? []) as CommunicationItem[];
+        setCommunications(nextCommunications);
+        setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, documents, nextCommunications, reminders));
+      }
+
+      if (counselorPayload.ok) {
+        const payload = await counselorPayload.json();
+        setCounselorWorkloads((payload?.items ?? []) as CounselorWorkloadItem[]);
+      }
+
+      setError(null);
+    } catch (runError) {
+      setError(runError instanceof Error ? runError.message : "Unable to run admissions outreach automation.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
   async function updateHelpdeskStatus(item: HelpdeskTicketItem, status: string) {
     if (demoMode) {
       const nextTickets = helpdeskTickets.map((entry) =>
@@ -1516,6 +1624,50 @@ export default function OperationsPage() {
                 ))}
 
                 {!loading && counselingSessions.length === 0 ? <div className="rounded-[1.3rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No counseling sessions are scheduled yet.</div> : null}
+              </div>
+            </section>
+
+            <section className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-200">Journey Automation</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-white">Template-driven outreach and counselor balancing</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={runOutreachAutomation}
+                  disabled={updatingInquiryId === "outreach-run"}
+                  className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-fuchsia-100 disabled:opacity-50"
+                >
+                  {updatingInquiryId === "outreach-run" ? "Running..." : "Run Outreach"}
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="space-y-4">
+                  {journeyTemplates.map((item) => (
+                    <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-white">{item.templateName}</p>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.channel}</span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">{item.triggerType}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-400">{item.subject}</p>
+                    </article>
+                  ))}
+                </div>
+                <div className="space-y-4">
+                  {counselorWorkloads.map((item) => (
+                    <article key={item.counselorName} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-medium text-white">{item.counselorName}</p>
+                        <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-cyan-100">{item.loadStatus}</span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-400">Applications {item.activeApplications} | Sessions {item.scheduledSessions} | Follow-ups {item.followUpsDue}</p>
+                      <p className="mt-3 text-xs uppercase tracking-[0.16em] text-fuchsia-200">Total load {item.totalLoad}</p>
+                    </article>
+                  ))}
+                </div>
               </div>
             </section>
 

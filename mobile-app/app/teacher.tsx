@@ -39,6 +39,24 @@ type AdvisingNoteItem = {
   createdAtUtc: string;
 };
 
+type ContentDraftItem = {
+  id: string;
+  courseCode: string;
+  draftType: string;
+  title: string;
+  status: string;
+  updatedAtUtc: string;
+};
+
+type AssessmentPublicationItem = {
+  id: string;
+  courseCode: string;
+  assessmentName: string;
+  status: string;
+  moderationNote: string;
+  updatedAtUtc: string;
+};
+
 type TeacherState = {
   totalCourses: number;
   teachingLoad: number;
@@ -53,6 +71,8 @@ type TeacherState = {
   alerts: AttendanceAlert[];
   sessions: AttendanceSessionItem[];
   gradeReviews: GradeReviewItem[];
+  contentDrafts: ContentDraftItem[];
+  publishingQueue: AssessmentPublicationItem[];
   advisingNotes: AdvisingNoteItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
   error: string | null;
@@ -94,6 +114,14 @@ const demoState: TeacherState = {
       status: "Ready To Publish",
       reviewerNote: "Moderation completed."
     }
+  ],
+  contentDrafts: [
+    { id: "draft-1", courseCode: "CSE401", draftType: "Module Outline", title: "Week 5 replication patterns", status: "Draft", updatedAtUtc: "2026-04-04T10:00:00Z" },
+    { id: "draft-2", courseCode: "PHY201", draftType: "Assessment Brief", title: "Internal quiz moderation notes", status: "Review Ready", updatedAtUtc: "2026-04-05T08:00:00Z" }
+  ],
+  publishingQueue: [
+    { id: "publish-1", courseCode: "CSE401", assessmentName: "Midterm Rubric", status: "Moderation Review", moderationNote: "Waiting for final rubric sign-off.", updatedAtUtc: "2026-04-04T12:00:00Z" },
+    { id: "publish-2", courseCode: "PHY201", assessmentName: "Internal Quiz 2", status: "Ready To Publish", moderationNote: "Moderation completed and board-ready.", updatedAtUtc: "2026-04-05T09:00:00Z" }
   ],
   advisingNotes: [
     {
@@ -153,28 +181,32 @@ export default function TeacherMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse] = await Promise.all([
+        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse, draftsResponse, publishingResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=4`, { headers }),
           fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/grading-summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers }),
-          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=5`, { headers })
+          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=5`, { headers }),
+          fetch(`${apiConfig.lms()}/api/v1/teachers/${session.user.id}/content-drafts`, { headers }),
+          fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue`, { headers })
         ]);
 
-        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok) {
+        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok || !draftsResponse.ok || !publishingResponse.ok) {
           throw new Error("Teacher mobile workspace is unavailable.");
         }
 
-        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions] = await Promise.all([
+        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions, drafts, publishing] = await Promise.all([
           summaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
           notificationsResponse.json(),
           gradingResponse.json(),
           advisingResponse.json(),
-          sessionsResponse.json()
+          sessionsResponse.json(),
+          draftsResponse.json(),
+          publishingResponse.json()
         ]);
         const courseCodes = Array.from(new Set(((coursesPayload?.items ?? []) as Array<{ courseCode: string }>).map((item) => item.courseCode)));
         const lmsResponse = await fetch(
@@ -199,6 +231,8 @@ export default function TeacherMobilePage() {
           alerts: attendance?.alerts ?? [],
           sessions: sessions?.items ?? [],
           gradeReviews: grading?.items ?? [],
+          contentDrafts: drafts?.items ?? [],
+          publishingQueue: publishing?.items ?? [],
           advisingNotes: advising?.items ?? [],
           notifications: notifications?.items ?? [],
           error: null
@@ -381,6 +415,168 @@ export default function TeacherMobilePage() {
     }
   }
 
+  async function quickCaptureAttendance(item: AttendanceSessionItem) {
+    setBusyId(`capture-${item.id}`);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          alerts: current.alerts.map((alert) =>
+            alert.courseCode === item.courseCode
+              ? { ...alert, totalRecords: alert.totalRecords + 1, percentage: Math.min(100, Number((alert.percentage + 8).toFixed(2))) }
+              : alert
+          ),
+          error: null
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions/${item.id}/quick-record`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          studentId: "00000000-0000-0000-0000-000000000123",
+          status: "Present",
+          method: "Manual"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to capture attendance.");
+      }
+
+      setState((current) => ({
+        ...current,
+        alerts: current.alerts.map((alert) =>
+          alert.courseCode === item.courseCode
+            ? { ...alert, totalRecords: alert.totalRecords + 1, percentage: Math.min(100, Number((alert.percentage + 8).toFixed(2))) }
+            : alert
+        ),
+        error: null
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Teacher attendance capture is unavailable right now."
+      }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function createContentDraft(courseCode: string, draftType: string, title: string) {
+    setBusyId(`${draftType}-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const item: ContentDraftItem = {
+          id: `draft-${Date.now()}`,
+          courseCode,
+          draftType,
+          title,
+          status: "Draft",
+          updatedAtUtc: new Date().toISOString()
+        };
+        setState((current) => ({
+          ...current,
+          contentDrafts: [item, ...current.contentDrafts].slice(0, 4),
+          error: null
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.lms()}/api/v1/teachers/${session.user.id}/content-drafts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode,
+          draftType,
+          title
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create content draft.");
+      }
+
+      const payload = (await response.json()) as ContentDraftItem;
+      setState((current) => ({
+        ...current,
+        contentDrafts: [payload, ...current.contentDrafts].slice(0, 4),
+        error: null
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Teacher content authoring is unavailable right now."
+      }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function updatePublishingQueue(item: AssessmentPublicationItem, status: string) {
+    setBusyId(`publish-${item.id}`);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          publishingQueue: current.publishingQueue.map((entry) =>
+            entry.id === item.id ? { ...entry, status, updatedAtUtc: new Date().toISOString() } : entry
+          ),
+          error: null
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/publishing-queue/${item.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          status,
+          moderationNote: status === "Published" ? "Published from teacher mobile workspace." : "Moved through publication queue from teacher mobile workspace."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to update publishing queue.");
+      }
+
+      const payload = (await response.json()) as AssessmentPublicationItem;
+      setState((current) => ({
+        ...current,
+        publishingQueue: current.publishingQueue.map((entry) => (entry.id === item.id ? { ...entry, ...payload } : entry)),
+        error: null
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Teacher publishing actions are unavailable right now."
+      }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function addAdvisingNote(courseCode: string, title: string, note: string) {
     setBusyId(title);
 
@@ -495,6 +691,22 @@ export default function TeacherMobilePage() {
           <Text style={{ color: "#fde68a", fontSize: 13 }}>Faculty Workload</Text>
           <Text style={{ color: "#fff7ed", fontSize: 22, fontWeight: "700", marginTop: 8 }}>{state.learningMaterials} materials | {state.assignments} assignments</Text>
           <Text style={{ color: "#fed7aa", marginTop: 10 }}>Teaching content and attendance attention now travel together in the mobile teacher view.</Text>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            <Pressable
+              onPress={() => createContentDraft("CSE401", "Module Outline", "New distributed systems module outline")}
+              disabled={busyId === "Module Outline-CSE401"}
+              style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(52, 211, 153, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === "Module Outline-CSE401" ? 0.5 : 1 }}
+            >
+              <Text style={{ color: "#d1fae5", fontWeight: "700", textAlign: "center" }}>{busyId === "Module Outline-CSE401" ? "Saving..." : "Module Draft"}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => createContentDraft("PHY201", "Assessment Brief", "New physics assessment brief")}
+              disabled={busyId === "Assessment Brief-PHY201"}
+              style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(217, 70, 239, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === "Assessment Brief-PHY201" ? 0.5 : 1 }}
+            >
+              <Text style={{ color: "#f5d0fe", fontWeight: "700", textAlign: "center" }}>{busyId === "Assessment Brief-PHY201" ? "Saving..." : "Assessment Draft"}</Text>
+            </Pressable>
+          </View>
         </AnimatedSurface>
 
         <AnimatedSurface
@@ -543,6 +755,13 @@ export default function TeacherMobilePage() {
                 <Text style={{ color: "#bfd3ea", marginTop: 6 }}>Started {formatTimestamp(item.startedAtUtc)}</Text>
                 {item.closedAtUtc ? <Text style={{ color: "#fde68a", marginTop: 6 }}>Closed {formatTimestamp(item.closedAtUtc)}</Text> : null}
                 <Pressable
+                  onPress={() => quickCaptureAttendance(item)}
+                  disabled={busyId === `capture-${item.id}` || item.status !== "Active"}
+                  style={{ marginTop: 12, borderRadius: 14, backgroundColor: "rgba(34, 211, 238, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `capture-${item.id}` || item.status !== "Active" ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>{busyId === `capture-${item.id}` ? "Working..." : "Capture Check-In"}</Text>
+                </Pressable>
+                <Pressable
                   onPress={() => closeAttendanceSession(item)}
                   disabled={busyId === item.id || item.status === "Closed"}
                   style={{ marginTop: 12, borderRadius: 14, backgroundColor: "rgba(253, 224, 71, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === item.id || item.status === "Closed" ? 0.5 : 1 }}
@@ -552,6 +771,24 @@ export default function TeacherMobilePage() {
               </View>
             ))}
             {state.sessions.length === 0 ? <Text style={{ color: "#94a3b8" }}>No attendance sessions are available yet.</Text> : null}
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 430, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(16, 185, 129, 0.12)", borderWidth: 1, borderColor: "rgba(52, 211, 153, 0.18)" }}
+        >
+          <Text style={{ color: "#6ee7b7", fontSize: 13 }}>Content Drafts</Text>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.contentDrafts.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.title}</Text>
+                <Text style={{ color: "#bbf7d0", marginTop: 6 }}>{item.courseCode} | {item.draftType}</Text>
+                <Text style={{ color: "#86efac", marginTop: 8, fontSize: 12 }}>{item.status} | {formatTimestamp(item.updatedAtUtc)}</Text>
+              </View>
+            ))}
           </View>
         </AnimatedSurface>
 
@@ -588,6 +825,40 @@ export default function TeacherMobilePage() {
               </View>
             ))}
             {state.gradeReviews.length === 0 ? <Text style={{ color: "#94a3b8" }}>No grading reviews are waiting right now.</Text> : null}
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 490, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(56, 189, 248, 0.12)", borderWidth: 1, borderColor: "rgba(125, 211, 252, 0.18)" }}
+        >
+          <Text style={{ color: "#7dd3fc", fontSize: 13 }}>Publishing Queue</Text>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.publishingQueue.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.assessmentName}</Text>
+                <Text style={{ color: "#bae6fd", marginTop: 6 }}>{item.courseCode} | {item.status}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>{item.moderationNote}</Text>
+                <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+                  <Pressable
+                    onPress={() => updatePublishingQueue(item, "Ready To Publish")}
+                    disabled={busyId === `publish-${item.id}` || item.status === "Ready To Publish" || item.status === "Published"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(52, 211, 153, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `publish-${item.id}` || item.status === "Ready To Publish" || item.status === "Published" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#d1fae5", fontWeight: "700", textAlign: "center" }}>{busyId === `publish-${item.id}` ? "Working..." : "Move Ready"}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => updatePublishingQueue(item, "Published")}
+                    disabled={busyId === `publish-${item.id}` || item.status === "Published"}
+                    style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `publish-${item.id}` || item.status === "Published" ? 0.5 : 1 }}
+                  >
+                    <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>{busyId === `publish-${item.id}` ? "Working..." : "Publish"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
           </View>
         </AnimatedSurface>
 
