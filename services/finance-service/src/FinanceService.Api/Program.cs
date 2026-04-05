@@ -287,6 +287,61 @@ app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions", async (Guid st
     });
 }).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
 
+app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions/{sessionId:guid}/complete", async (Guid studentId, Guid sessionId, HttpContext httpContext, FinanceDbContext dbContext) =>
+{
+    if (!CanAccessStudentFinance(httpContext, studentId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var session = await dbContext.PaymentSessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.TenantId == tenantId && x.StudentId == studentId);
+    if (session is null)
+    {
+        return Results.NotFound();
+    }
+
+    var existingPayment = await dbContext.Payments.FirstOrDefaultAsync(x =>
+        x.TenantId == tenantId &&
+        x.StudentId == studentId &&
+        x.InvoiceNumber == session.InvoiceNumber &&
+        x.Provider == session.Provider &&
+        string.Equals(x.Status, "Paid", StringComparison.OrdinalIgnoreCase));
+
+    session.Status = "Paid";
+
+    if (existingPayment is null)
+    {
+        var payment = new Payment
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantId,
+            StudentId = studentId,
+            Amount = session.Amount,
+            Currency = session.Currency,
+            Provider = session.Provider,
+            Status = "Paid",
+            PaidAtUtc = DateTimeOffset.UtcNow,
+            InvoiceNumber = session.InvoiceNumber
+        };
+
+        dbContext.Payments.Add(payment);
+        dbContext.AuditLogs.Add(FinanceAuditLog.Create(tenantId, "student.payment-session.completed", session.Id.ToString(), httpContext.User.Identity?.Name ?? "finance-service", $"Student payment session {session.InvoiceNumber} completed via {session.Provider}."));
+        await dbContext.SaveChangesAsync();
+        existingPayment = payment;
+    }
+    else
+    {
+        await dbContext.SaveChangesAsync();
+    }
+
+    return Results.Ok(new
+    {
+        session,
+        payment = existingPayment
+    });
+}).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
+
 app.MapGet("/api/v1/reconciliation/runs", async (HttpContext httpContext, FinanceDbContext dbContext) =>
     await dbContext.ReconciliationRuns.Where(x => x.TenantId == httpContext.GetValidatedTenantId()).OrderByDescending(x => x.ExecutedAtUtc).Take(20).ToListAsync())
     .RequirePermissions("finance.manage");

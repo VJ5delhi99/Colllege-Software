@@ -103,7 +103,13 @@ type PendingDocumentItem = {
   documentType: string;
   status: string;
   notes: string;
+  fileName?: string;
+  contentType?: string;
+  deliveryChannel?: string;
+  deliveryReference?: string;
   requestedAtUtc: string;
+  uploadedAtUtc?: string | null;
+  deliveredAtUtc?: string | null;
 };
 
 type CommunicationItem = {
@@ -259,9 +265,15 @@ const demoDocuments: PendingDocumentItem[] = [
     applicationId: "application-2",
     applicantName: "Aditya Rao",
     documentType: "Transfer Certificate",
-    status: "Verified",
+    status: "Delivered",
     notes: "Initial review completed",
-    requestedAtUtc: "2026-04-04T11:00:00Z"
+    fileName: "aditya-transfer-certificate.pdf",
+    contentType: "application/pdf",
+    deliveryChannel: "Portal Download",
+    deliveryReference: "DOC-20260405-1001",
+    requestedAtUtc: "2026-04-04T11:00:00Z",
+    uploadedAtUtc: "2026-04-04T12:00:00Z",
+    deliveredAtUtc: "2026-04-05T09:00:00Z"
   }
 ];
 
@@ -342,7 +354,7 @@ function summarizeAdmissions(
     documents: {
       total: documents.length,
       pending: documents.filter((item) => item.status === "Requested" || item.status === "Under Review").length,
-      verified: documents.filter((item) => item.status === "Verified").length
+      verified: documents.filter((item) => item.status === "Verified" || item.status === "Delivered").length
     },
     communications: {
       total: communications.length,
@@ -836,6 +848,146 @@ export default function OperationsPage() {
     }
   }
 
+  async function uploadDocumentPacket(item: PendingDocumentItem) {
+    if (demoMode) {
+      const nextDocuments = documents.map((entry) =>
+        entry.id === item.id
+          ? {
+              ...entry,
+              status: entry.status === "Requested" ? "Under Review" : entry.status,
+              fileName: entry.fileName ?? `${entry.applicantName.toLowerCase().replace(/\s+/g, "-")}-${entry.documentType.toLowerCase().replace(/\s+/g, "-")}.pdf`,
+              contentType: "application/pdf",
+              uploadedAtUtc: new Date().toISOString(),
+              notes: "Upload packet prepared from the operations hub."
+            }
+          : entry
+      );
+      setDocuments(nextDocuments);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments, communications, reminders));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/documents/${item.id}/upload-request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          fileName: `${item.applicantName.toLowerCase().replace(/\s+/g, "-")}-${item.documentType.toLowerCase().replace(/\s+/g, "-")}.pdf`,
+          contentType: "application/pdf"
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to prepare document upload.");
+      }
+
+      const payload = await response.json();
+      const nextDocument = (payload?.document ?? item) as PendingDocumentItem;
+      const nextDocuments = documents.map((entry) => (entry.id === item.id ? nextDocument : entry));
+      setDocuments(nextDocuments);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments, communications, reminders));
+      setError(null);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to prepare document upload.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function deliverDocument(item: PendingDocumentItem) {
+    if (demoMode) {
+      const nextDocuments = documents.map((entry) =>
+        entry.id === item.id
+          ? {
+              ...entry,
+              status: "Delivered",
+              deliveryChannel: "Portal Download",
+              deliveryReference: entry.deliveryReference ?? `DOC-${new Date().getFullYear()}-1001`,
+              deliveredAtUtc: new Date().toISOString(),
+              notes: "Delivered to the applicant from the operations hub."
+            }
+          : entry
+      );
+      setDocuments(nextDocuments);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments, communications, reminders));
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/documents/${item.id}/deliver`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          deliveryChannel: "Portal Download",
+          notes: "Delivered to the applicant from the operations hub."
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to deliver document.");
+      }
+
+      const payload = (await response.json()) as PendingDocumentItem;
+      const nextDocuments = documents.map((entry) => (entry.id === item.id ? payload : entry));
+      setDocuments(nextDocuments);
+      setInquirySummary(summarizeAdmissions(inquiries, applications, counselingSessions, nextDocuments, communications, reminders));
+      setError(null);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to deliver document.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
+  async function downloadDocument(item: PendingDocumentItem) {
+    if (!item.fileName && demoMode) {
+      return;
+    }
+
+    if (demoMode) {
+      setError(null);
+      return;
+    }
+
+    try {
+      setUpdatingInquiryId(item.id);
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.communication()}/api/v1/admissions/documents/${item.id}/download-url`, {
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        }
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Unable to generate document download.");
+      }
+
+      const payload = await response.json();
+      if (payload?.url) {
+        window.open(payload.url, "_blank", "noopener,noreferrer");
+      }
+      setError(null);
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to generate document download.");
+    } finally {
+      setUpdatingInquiryId(null);
+    }
+  }
+
   async function sendApplicantCommunication(item: ApplicationItem) {
     if (demoMode) {
       const nextCommunication: CommunicationItem = {
@@ -1243,12 +1395,24 @@ export default function OperationsPage() {
                     </div>
                     <p className="mt-2 text-sm leading-6 text-slate-300">{item.documentType}</p>
                     <p className="mt-2 text-sm leading-6 text-slate-400">{item.notes || "No notes added."}</p>
+                    {item.fileName ? <p className="mt-2 text-sm leading-6 text-slate-400">File: {item.fileName}</p> : null}
+                    {item.deliveryReference ? <p className="mt-2 text-sm leading-6 text-emerald-200">Delivery: {item.deliveryReference} | {item.deliveryChannel}</p> : null}
                     <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">{formatTimestamp(item.requestedAtUtc)}</p>
+                    {item.uploadedAtUtc ? <p className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-200">Uploaded {formatTimestamp(item.uploadedAtUtc)}</p> : null}
+                    {item.deliveredAtUtc ? <p className="mt-2 text-xs uppercase tracking-[0.16em] text-emerald-200">Delivered {formatTimestamp(item.deliveredAtUtc)}</p> : null}
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"
+                        onClick={() => uploadDocumentPacket(item)}
+                        disabled={updatingInquiryId === item.id || Boolean(item.fileName)}
+                        className="rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-sky-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Prepare Upload"}
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => updateDocumentStatus(item.id, "Verified")}
-                        disabled={updatingInquiryId === item.id || item.status === "Verified"}
+                        disabled={updatingInquiryId === item.id || item.status === "Verified" || item.status === "Delivered"}
                         className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-emerald-100 disabled:opacity-50"
                       >
                         {updatingInquiryId === item.id ? "Updating..." : "Mark Verified"}
@@ -1260,6 +1424,22 @@ export default function OperationsPage() {
                         className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
                       >
                         {updatingInquiryId === item.id ? "Updating..." : "Needs Review"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deliverDocument(item)}
+                        disabled={updatingInquiryId === item.id || item.status === "Delivered" || !item.fileName}
+                        className="rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-fuchsia-100 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Deliver"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadDocument(item)}
+                        disabled={updatingInquiryId === item.id || !item.fileName}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-200 disabled:opacity-50"
+                      >
+                        {updatingInquiryId === item.id ? "Updating..." : "Download"}
                       </button>
                     </div>
                   </article>

@@ -743,7 +743,9 @@ app.MapPost("/api/v1/admissions/documents/{id:guid}/status", async (Guid id, Htt
     if (application is not null)
     {
         var documents = await dbContext.ApplicationDocuments.Where(x => x.ApplicationId == application.Id && x.TenantId == tenantId).ToListAsync();
-        if (documents.All(x => string.Equals(x.Status, "Verified", StringComparison.OrdinalIgnoreCase)))
+        if (documents.All(x =>
+            string.Equals(x.Status, "Verified", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(x.Status, "Delivered", StringComparison.OrdinalIgnoreCase)))
         {
             application.Stage = "Ready For Offer Review";
             application.Status = "Qualified";
@@ -759,6 +761,108 @@ app.MapPost("/api/v1/admissions/documents/{id:guid}/status", async (Guid id, Htt
         EntityId = document.Id.ToString(),
         Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
         Details = $"{document.DocumentType} moved to {request.Status} for {document.ApplicantName}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(document);
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/documents/{id:guid}/upload-request", async (Guid id, HttpContext httpContext, [FromBody] AdmissionDocumentUploadRequest request, IObjectStorageService storage, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var document = await dbContext.ApplicationDocuments.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (document is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!IsAllowedAdmissionsContentType(request.ContentType))
+    {
+        return Results.BadRequest(new { message = "Unsupported document file type." });
+    }
+
+    var safeFileName = SanitizeAdmissionsFileName(request.FileName);
+    var objectKey = $"{tenantId}/admissions/{document.ApplicationId}/{document.Id}-{safeFileName}";
+    var signedUrl = await storage.CreateUploadUrlAsync("university360-admissions", objectKey, request.ContentType, TimeSpan.FromMinutes(15));
+
+    document.ObjectKey = objectKey;
+    document.FileName = safeFileName;
+    document.ContentType = request.ContentType;
+    document.UploadedAtUtc = DateTimeOffset.UtcNow;
+    document.Status = document.Status == "Requested" ? "Under Review" : document.Status;
+    document.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.document.upload-requested",
+        EntityId = document.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{document.DocumentType} upload request prepared for {document.ApplicantName}.",
+        CreatedAtUtc = DateTimeOffset.UtcNow
+    });
+
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(new { document, upload = signedUrl });
+}).RequirePermissions("announcements.create");
+
+app.MapGet("/api/v1/admissions/documents/{id:guid}/download-url", async (Guid id, HttpContext httpContext, IObjectStorageService storage, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var document = await dbContext.ApplicationDocuments.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (document is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (string.IsNullOrWhiteSpace(document.ObjectKey))
+    {
+        return Results.BadRequest(new { message = "No uploaded file is available for this document yet." });
+    }
+
+    var signedUrl = await storage.CreateDownloadUrlAsync("university360-admissions", document.ObjectKey, TimeSpan.FromMinutes(30));
+    document.DownloadedAtUtc = DateTimeOffset.UtcNow;
+    document.UpdatedAtUtc = DateTimeOffset.UtcNow;
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(signedUrl);
+}).RequirePermissions("announcements.create");
+
+app.MapPost("/api/v1/admissions/documents/{id:guid}/deliver", async (Guid id, HttpContext httpContext, [FromBody] DeliverApplicationDocumentRequest request, CommunicationDbContext dbContext) =>
+{
+    var tenantId = httpContext.GetValidatedTenantId();
+    var document = await dbContext.ApplicationDocuments.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId);
+    if (document is null)
+    {
+        return Results.NotFound();
+    }
+
+    document.Status = "Delivered";
+    document.DeliveryChannel = string.IsNullOrWhiteSpace(request.DeliveryChannel) ? "Portal Download" : request.DeliveryChannel.Trim();
+    document.DeliveryReference = string.IsNullOrWhiteSpace(document.DeliveryReference) ? $"DOC-{DateTimeOffset.UtcNow:yyyyMMdd}-{Random.Shared.Next(1000, 9999)}" : document.DeliveryReference;
+    document.DeliveredAtUtc = DateTimeOffset.UtcNow;
+    document.Notes = request.Notes?.Trim() ?? document.Notes;
+    document.UpdatedAtUtc = DateTimeOffset.UtcNow;
+
+    dbContext.Notifications.Add(new Notification
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Title = $"Document delivered for {document.ApplicantName}",
+        Message = $"{document.DocumentType} | {document.DeliveryChannel}",
+        Audience = "Admin",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        Source = "admissions"
+    });
+    dbContext.AuditLogs.Add(new AuditLogEntry
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        Action = "admissions.document.delivered",
+        EntityId = document.Id.ToString(),
+        Actor = httpContext.User.Identity?.Name ?? httpContext.User.FindFirst("role")?.Value ?? "unknown",
+        Details = $"{document.DocumentType} delivered for {document.ApplicantName} via {document.DeliveryChannel}.",
         CreatedAtUtc = DateTimeOffset.UtcNow
     });
 
@@ -807,6 +911,21 @@ app.MapGet("/api/v1/audit-logs", async (HttpContext httpContext, CommunicationDb
 }).RequirePermissions("announcements.create");
 
 app.Run();
+
+static bool IsAllowedAdmissionsContentType(string contentType) =>
+    contentType is
+        "application/pdf" or
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or
+        "image/jpeg" or
+        "image/png" or
+        "text/plain";
+
+static string SanitizeAdmissionsFileName(string fileName)
+{
+    var invalidChars = Path.GetInvalidFileNameChars();
+    var sanitized = new string(fileName.Where(ch => !invalidChars.Contains(ch)).ToArray()).Trim();
+    return string.IsNullOrWhiteSpace(sanitized) ? "document.bin" : sanitized.Replace(' ', '-');
+}
 
 static async Task SeedCommunicationDataAsync(WebApplication app)
 {
@@ -1002,7 +1121,11 @@ static async Task SeedCommunicationDataAsync(WebApplication app)
                 DocumentType = application.ProgramName.Contains("B.Tech", StringComparison.OrdinalIgnoreCase) ? "Academic Transcript" : "Transfer Certificate",
                 Status = application.ApplicantName.Contains("Aditya", StringComparison.OrdinalIgnoreCase) ? "Verified" : "Requested",
                 Notes = application.ApplicantName.Contains("Aditya", StringComparison.OrdinalIgnoreCase) ? "Initial review completed." : "Waiting for applicant upload.",
+                FileName = application.ApplicantName.Contains("Aditya", StringComparison.OrdinalIgnoreCase) ? "aditya-transfer-certificate.pdf" : string.Empty,
+                ObjectKey = application.ApplicantName.Contains("Aditya", StringComparison.OrdinalIgnoreCase) ? $"default/admissions/{application.Id}/transfer-certificate.pdf" : string.Empty,
+                ContentType = application.ApplicantName.Contains("Aditya", StringComparison.OrdinalIgnoreCase) ? "application/pdf" : string.Empty,
                 RequestedAtUtc = DateTimeOffset.UtcNow.AddHours(-4),
+                UploadedAtUtc = application.ApplicantName.Contains("Aditya", StringComparison.OrdinalIgnoreCase) ? DateTimeOffset.UtcNow.AddHours(-3) : null,
                 UpdatedAtUtc = DateTimeOffset.UtcNow.AddHours(-3)
             });
         }
@@ -1067,6 +1190,8 @@ public sealed record UpdateApplicationDocumentStatusRequest(string Status, strin
 public sealed record CreateAdmissionCommunicationRequest(Guid ApplicationId, string Channel, string Subject, string Body, string? TemplateName, DateTimeOffset? ScheduledForUtc);
 public sealed record CreateAdmissionReminderRequest(Guid ApplicationId, string ReminderType, DateTimeOffset DueAtUtc, string? Notes);
 public sealed record UpdateAdmissionReminderStatusRequest(string Status, string? Notes);
+public sealed record AdmissionDocumentUploadRequest(string FileName, string ContentType);
+public sealed record DeliverApplicationDocumentRequest(string? DeliveryChannel, string? Notes);
 
 public sealed class Announcement
 {
@@ -1159,7 +1284,15 @@ public sealed class ApplicationDocument
     public string DocumentType { get; set; } = string.Empty;
     public string Status { get; set; } = "Requested";
     public string Notes { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string ObjectKey { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public string DeliveryChannel { get; set; } = string.Empty;
+    public string DeliveryReference { get; set; } = string.Empty;
     public DateTimeOffset RequestedAtUtc { get; set; }
+    public DateTimeOffset? UploadedAtUtc { get; set; }
+    public DateTimeOffset? DeliveredAtUtc { get; set; }
+    public DateTimeOffset? DownloadedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
@@ -1248,7 +1381,9 @@ public static class AdmissionsWorkflowMetrics
             new AdmissionsDocumentMetrics(
                 documents.Count,
                 documents.Count(x => x.Status == "Requested" || x.Status == "Under Review"),
-                documents.Count(x => x.Status == "Verified")),
+                documents.Count(x =>
+                    string.Equals(x.Status, "Verified", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(x.Status, "Delivered", StringComparison.OrdinalIgnoreCase))),
             new AdmissionsCommunicationMetrics(
                 communications.Count,
                 communications.Count(x => x.Channel == "Email"),

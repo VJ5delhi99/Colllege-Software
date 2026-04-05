@@ -48,7 +48,11 @@ public sealed class WorkflowCoverageTests
             [inquiry],
             [new AdmissionApplication { Status = "Submitted", UpdatedAtUtc = nowUtc.AddDays(-3), Id = Guid.NewGuid() }, new AdmissionApplication { Status = "Qualified" }],
             [new CounselingSession { Status = "Scheduled" }, new CounselingSession { Status = "Completed" }],
-            [new ApplicationDocument { Status = "Requested", RequestedAtUtc = nowUtc.AddDays(-2), ApplicationId = Guid.NewGuid(), DocumentType = "Transcript" }, new ApplicationDocument { Status = "Verified" }],
+            [
+                new ApplicationDocument { Status = "Requested", RequestedAtUtc = nowUtc.AddDays(-2), ApplicationId = Guid.NewGuid(), DocumentType = "Transcript" },
+                new ApplicationDocument { Status = "Verified" },
+                new ApplicationDocument { Status = "Delivered" }
+            ],
             [new AdmissionCommunication { Channel = "Email", Status = "Sent" }],
             [new AdmissionReminder { Status = "Open", DueAtUtc = nowUtc.AddHours(-2) }, new AdmissionReminder { Status = "Completed" }]);
 
@@ -59,7 +63,7 @@ public sealed class WorkflowCoverageTests
         summary.Counseling.Scheduled.Should().Be(1);
         summary.Counseling.Completed.Should().Be(1);
         summary.Documents.Pending.Should().Be(1);
-        summary.Documents.Verified.Should().Be(1);
+        summary.Documents.Verified.Should().Be(2);
         summary.Communications.Email.Should().Be(1);
         summary.Reminders.Open.Should().Be(1);
         summary.Reminders.Completed.Should().Be(1);

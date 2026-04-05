@@ -32,6 +32,8 @@ The repository already had strong service coverage, but the shipped experience s
 - Added end-to-end certificate-style request fulfillment support so student requests can move from submission to approval and issuance with visible fulfillment references across student and admin surfaces.
 - Added teacher-scoped attendance-session control so faculty can now start and close live attendance windows from both web and mobile workspaces.
 - Added student-initiated payment-session creation so finance no longer stops at summary visibility inside the student-facing product.
+- Added student-side payment completion for local product flows so fee collection no longer stops at pending-session creation inside the web and mobile student workspaces.
+- Added admissions document upload preparation, delivery metadata, and signed download handling so the operations flow now covers actual applicant document handoff instead of only verification status.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work

@@ -79,6 +79,7 @@ export default function HomeScreen() {
   const [resetting, setResetting] = useState(false);
   const [requesting, setRequesting] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
+  const [latestSessionId, setLatestSessionId] = useState<string | null>(null);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -122,6 +123,7 @@ export default function HomeScreen() {
         const latestResult = results?.latest ?? null;
         const latestPayment = finance?.latestPayment ?? null;
         const latestSession = finance?.latestSession ?? null;
+        setLatestSessionId(latestSession?.id ?? null);
         const courseCodes = Array.from(new Set((workspace?.recentEnrollments ?? []).map((item: { courseCode: string }) => item.courseCode)));
         const lms = await fetchJson(
           `${apiConfig.lms()}/api/v1/workspace/summary${courseCodes.length > 0 ? `?courseCodes=${encodeURIComponent(courseCodes.join(","))}` : ""}`,
@@ -239,6 +241,7 @@ export default function HomeScreen() {
 
     try {
       if (demoMode) {
+        setLatestSessionId(`demo-session-${Date.now()}`);
         setState((current) => ({
           ...current,
           finance: "INR 57K",
@@ -271,6 +274,7 @@ export default function HomeScreen() {
       }
 
       const payload = await response.json();
+      setLatestSessionId(payload?.sessionId ?? null);
       setState((current) => ({
         ...current,
         paymentTitle: `Pending ${payload?.invoiceNumber ?? invoiceNumber}`,
@@ -281,6 +285,56 @@ export default function HomeScreen() {
       setState((current) => ({
         ...current,
         error: "Student payment session creation is unavailable right now."
+      }));
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  async function completePaymentSession() {
+    if (!latestSessionId) {
+      return;
+    }
+
+    setPaying(true);
+
+    try {
+      if (demoMode) {
+        setLatestSessionId(null);
+        setState((current) => ({
+          ...current,
+          paymentTitle: "Last paid INV-2026-010",
+          paymentMeta: "Razorpay payment was marked complete from the mobile student cockpit.",
+          error: null
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.finance()}/api/v1/students/${session.user.id}/payment-sessions/${latestSessionId}/complete`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to complete payment session.");
+      }
+
+      const payload = await response.json();
+      setLatestSessionId(null);
+      setState((current) => ({
+        ...current,
+        paymentTitle: `Last paid ${payload?.payment?.invoiceNumber ?? "invoice"}`,
+        paymentMeta: `${payload?.payment?.provider ?? "Gateway"} payment was marked complete from the mobile student cockpit.`,
+        error: null
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Student payment completion is unavailable right now."
       }));
     } finally {
       setPaying(false);
@@ -442,6 +496,13 @@ export default function HomeScreen() {
             style={{ marginTop: 14, alignSelf: "flex-start", borderRadius: 18, backgroundColor: "rgba(253, 224, 71, 0.18)", paddingHorizontal: 14, paddingVertical: 12, opacity: paying ? 0.5 : 1 }}
           >
             <Text style={{ color: "#fef3c7", fontWeight: "700" }}>{paying ? "Preparing..." : "Start Fee Payment"}</Text>
+          </Pressable>
+          <Pressable
+            onPress={completePaymentSession}
+            disabled={paying || !latestSessionId}
+            style={{ marginTop: 12, alignSelf: "flex-start", borderRadius: 18, backgroundColor: "rgba(134, 239, 172, 0.18)", paddingHorizontal: 14, paddingVertical: 12, opacity: paying || !latestSessionId ? 0.5 : 1 }}
+          >
+            <Text style={{ color: "#dcfce7", fontWeight: "700" }}>{paying ? "Updating..." : "Complete Latest Payment"}</Text>
           </Pressable>
         </AnimatedSurface>
 

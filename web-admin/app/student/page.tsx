@@ -34,6 +34,7 @@ type StudentState = {
   nextCourse: string;
   totalPaid: number;
   pendingPayments: number;
+  latestSessionId: string | null;
   latestInvoice: string;
   latestFinanceStatus: string;
   academicStatus: string;
@@ -55,6 +56,7 @@ const demoState: StudentState = {
   nextCourse: "Distributed Systems",
   totalPaid: 57000,
   pendingPayments: 1,
+  latestSessionId: "session-1",
   latestInvoice: "INV-2026-003",
   latestFinanceStatus: "Pending payment session via PayPal",
   academicStatus: "Active",
@@ -184,6 +186,7 @@ export default function StudentPage() {
             nextCourse: academicPayload?.nextCourse?.title ?? "No class scheduled",
             totalPaid: financePayload?.totalPaid ?? 0,
             pendingPayments: financePayload?.pendingSessions ?? 0,
+            latestSessionId: financePayload?.latestSession?.id ?? null,
             latestInvoice: financePayload?.latestSession?.invoiceNumber ?? financePayload?.latestPayment?.invoiceNumber ?? "No invoice",
             latestFinanceStatus: financePayload?.latestSession
               ? `Pending payment session via ${financePayload.latestSession.provider ?? "gateway"}`
@@ -287,12 +290,13 @@ export default function StudentPage() {
 
     try {
       if (demoMode) {
-        setState((current) => ({
-          ...current,
-          pendingPayments: current.pendingPayments + 1,
-          latestInvoice: `INV-${new Date().getFullYear()}-010`,
-          latestFinanceStatus: "Pending payment session via Razorpay"
-        }));
+      setState((current) => ({
+        ...current,
+        pendingPayments: current.pendingPayments + 1,
+        latestSessionId: `demo-session-${Date.now()}`,
+        latestInvoice: `INV-${new Date().getFullYear()}-010`,
+        latestFinanceStatus: "Pending payment session via Razorpay"
+      }));
         return;
       }
 
@@ -323,12 +327,63 @@ export default function StudentPage() {
       setState((current) => ({
         ...current,
         pendingPayments: current.pendingPayments + 1,
+        latestSessionId: payload?.sessionId ?? current.latestSessionId,
         latestInvoice: payload?.invoiceNumber ?? invoiceNumber,
         latestFinanceStatus: `Pending payment session via ${payload?.provider ?? "gateway"}`
       }));
       setError(null);
     } catch (paymentError) {
       setError(paymentError instanceof Error ? paymentError.message : "Unable to create payment session.");
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  async function completeLatestPayment() {
+    if (!state.latestSessionId) {
+      return;
+    }
+
+    setPaying(true);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          totalPaid: current.totalPaid + 8000,
+          pendingPayments: Math.max(current.pendingPayments - 1, 0),
+          latestSessionId: null,
+          latestFinanceStatus: "Last paid via Razorpay"
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.finance()}/api/v1/students/${session.user.id}/payment-sessions/${state.latestSessionId}/complete`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to complete payment session.");
+      }
+
+      const payload = await response.json();
+      const payment = payload?.payment;
+      setState((current) => ({
+        ...current,
+        totalPaid: current.totalPaid + (payment?.amount ?? 0),
+        pendingPayments: Math.max(current.pendingPayments - 1, 0),
+        latestSessionId: null,
+        latestInvoice: payment?.invoiceNumber ?? current.latestInvoice,
+        latestFinanceStatus: `Last paid via ${payment?.provider ?? "gateway"}`
+      }));
+      setError(null);
+    } catch (paymentError) {
+      setError(paymentError instanceof Error ? paymentError.message : "Unable to complete payment session.");
     } finally {
       setPaying(false);
     }
@@ -411,6 +466,14 @@ export default function StudentPage() {
                 className="rounded-full border border-amber-300/20 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 disabled:opacity-60"
               >
                 {paying ? "Preparing..." : "Start Fee Payment"}
+              </button>
+              <button
+                type="button"
+                onClick={completeLatestPayment}
+                disabled={paying || !state.latestSessionId}
+                className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-4 py-2 text-sm font-medium text-emerald-100 disabled:opacity-60"
+              >
+                {paying ? "Updating..." : "Complete Latest Payment"}
               </button>
             </div>
           </article>
