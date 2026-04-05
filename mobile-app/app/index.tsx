@@ -78,6 +78,7 @@ export default function HomeScreen() {
   const [state, setState] = useState(initialState);
   const [resetting, setResetting] = useState(false);
   const [requesting, setRequesting] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -233,6 +234,59 @@ export default function HomeScreen() {
     }
   }
 
+  async function startPaymentSession() {
+    setPaying(true);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          finance: "INR 57K",
+          paymentTitle: `Pending INV-${new Date().getFullYear()}-010`,
+          paymentMeta: "Razorpay fee collection session is waiting for checkout completion."
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+      const response = await fetch(`${apiConfig.finance()}/api/v1/students/${session.user.id}/payment-sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          amount: 8000,
+          currency: "INR",
+          provider: "Razorpay",
+          invoiceNumber
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to create payment session.");
+      }
+
+      const payload = await response.json();
+      setState((current) => ({
+        ...current,
+        paymentTitle: `Pending ${payload?.invoiceNumber ?? invoiceNumber}`,
+        paymentMeta: `${payload?.provider ?? "Gateway"} session is still waiting for completion.`,
+        error: null
+      }));
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Student payment session creation is unavailable right now."
+      }));
+    } finally {
+      setPaying(false);
+    }
+  }
+
   const tiles = [
     { label: "Attendance", value: state.attendance, icon: ScanLine },
     { label: "Results", value: state.results, icon: GraduationCap },
@@ -382,6 +436,13 @@ export default function HomeScreen() {
           <Text style={{ color: "#fed7aa", marginTop: 10 }}>
             {state.paymentMeta}
           </Text>
+          <Pressable
+            onPress={startPaymentSession}
+            disabled={paying}
+            style={{ marginTop: 14, alignSelf: "flex-start", borderRadius: 18, backgroundColor: "rgba(253, 224, 71, 0.18)", paddingHorizontal: 14, paddingVertical: 12, opacity: paying ? 0.5 : 1 }}
+          >
+            <Text style={{ color: "#fef3c7", fontWeight: "700" }}>{paying ? "Preparing..." : "Start Fee Payment"}</Text>
+          </Pressable>
         </AnimatedSurface>
 
         <AnimatedSurface

@@ -11,6 +11,15 @@ type AttendanceAlert = {
   totalRecords: number;
 };
 
+type AttendanceSessionItem = {
+  id: string;
+  courseCode: string;
+  qrCode: string;
+  status: string;
+  startedAtUtc: string;
+  closedAtUtc?: string | null;
+};
+
 type GradeReviewItem = {
   id: string;
   studentName: string;
@@ -42,6 +51,7 @@ type TeacherState = {
   gradingPending: number;
   gradingReady: number;
   alerts: AttendanceAlert[];
+  sessions: AttendanceSessionItem[];
   gradeReviews: GradeReviewItem[];
   advisingNotes: AdvisingNoteItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
@@ -62,6 +72,10 @@ const demoState: TeacherState = {
   alerts: [
     { courseCode: "PHY201", percentage: 66.67, totalRecords: 3 },
     { courseCode: "CSE401", percentage: 100, totalRecords: 2 }
+  ],
+  sessions: [
+    { id: "session-1", courseCode: "PHY201", qrCode: "QR-PHY201-1", status: "Active", startedAtUtc: "2026-04-05T09:00:00Z" },
+    { id: "session-2", courseCode: "CSE401", qrCode: "QR-CSE401-9", status: "Closed", startedAtUtc: "2026-04-04T14:00:00Z", closedAtUtc: "2026-04-04T15:00:00Z" }
   ],
   gradeReviews: [
     {
@@ -139,26 +153,28 @@ export default function TeacherMobilePage() {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
         };
-        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse] = await Promise.all([
+        const [summaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=4`, { headers }),
           fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/grading-summary`, { headers }),
-          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers })
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers }),
+          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=5`, { headers })
         ]);
 
-        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok) {
+        if (!summaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok) {
           throw new Error("Teacher mobile workspace is unavailable.");
         }
 
-        const [summary, attendance, coursesPayload, notifications, grading, advising] = await Promise.all([
+        const [summary, attendance, coursesPayload, notifications, grading, advising, sessions] = await Promise.all([
           summaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
           notificationsResponse.json(),
           gradingResponse.json(),
-          advisingResponse.json()
+          advisingResponse.json(),
+          sessionsResponse.json()
         ]);
         const courseCodes = Array.from(new Set(((coursesPayload?.items ?? []) as Array<{ courseCode: string }>).map((item) => item.courseCode)));
         const lmsResponse = await fetch(
@@ -181,6 +197,7 @@ export default function TeacherMobilePage() {
           gradingPending: grading?.pending ?? 0,
           gradingReady: grading?.readyToPublish ?? 0,
           alerts: attendance?.alerts ?? [],
+          sessions: sessions?.items ?? [],
           gradeReviews: grading?.items ?? [],
           advisingNotes: advising?.items ?? [],
           notifications: notifications?.items ?? [],
@@ -246,6 +263,118 @@ export default function TeacherMobilePage() {
       setState((current) => ({
         ...current,
         error: "Teacher grading actions are unavailable right now."
+      }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function startAttendanceSession(courseCode: string) {
+    setBusyId(`start-${courseCode}`);
+
+    try {
+      if (demoMode) {
+        const nextSession: AttendanceSessionItem = {
+          id: `demo-session-${Date.now()}`,
+          courseCode,
+          qrCode: `QR-${courseCode}-${Date.now().toString().slice(-4)}`,
+          status: "Active",
+          startedAtUtc: new Date().toISOString()
+        };
+        setState((current) => ({
+          ...current,
+          activeSessions: current.sessions.filter((item) => item.status === "Active" && item.courseCode !== courseCode).length + 1,
+          sessions: [nextSession, ...current.sessions.filter((item) => !(item.courseCode === courseCode && item.status === "Active"))].slice(0, 5),
+          error: null
+        }));
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Unable to start attendance session.");
+      }
+
+      const payload = (await response.json()) as AttendanceSessionItem;
+      setState((current) => {
+        const nextSessions = [payload, ...current.sessions.filter((item) => item.id !== payload.id)].slice(0, 5);
+        return {
+          ...current,
+          activeSessions: nextSessions.filter((item) => item.status === "Active").length,
+          sessions: nextSessions,
+          error: null
+        };
+      });
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Teacher attendance session control is unavailable right now."
+      }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function closeAttendanceSession(item: AttendanceSessionItem) {
+    setBusyId(item.id);
+
+    try {
+      if (demoMode) {
+        setState((current) => {
+          const nextSessions = current.sessions.map((session) =>
+            session.id === item.id ? { ...session, status: "Closed", closedAtUtc: new Date().toISOString() } : session
+          );
+          return {
+            ...current,
+            activeSessions: nextSessions.filter((session) => session.status === "Active").length,
+            sessions: nextSessions,
+            error: null
+          };
+        });
+        return;
+      }
+
+      const session = await getStudentSession();
+      const response = await fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions/${item.id}/close`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to close attendance session.");
+      }
+
+      const payload = (await response.json()) as AttendanceSessionItem;
+      setState((current) => {
+        const nextSessions = current.sessions.map((session) => (session.id === item.id ? { ...session, ...payload } : session));
+        return {
+          ...current,
+          activeSessions: nextSessions.filter((session) => session.status === "Active").length,
+          sessions: nextSessions,
+          error: null
+        };
+      });
+    } catch {
+      setState((current) => ({
+        ...current,
+        error: "Teacher attendance session control is unavailable right now."
       }));
     } finally {
       setBusyId(null);
@@ -391,6 +520,45 @@ export default function TeacherMobilePage() {
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ delay: 340, type: "timing", duration: 450 }}
+          style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(34, 211, 238, 0.12)", borderWidth: 1, borderColor: "rgba(103, 232, 249, 0.18)" }}
+        >
+          <Text style={{ color: "#67e8f9", fontSize: 13 }}>Attendance Sessions</Text>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 14 }}>
+            {["PHY201", "CSE401"].map((courseCode) => (
+              <Pressable
+                key={courseCode}
+                onPress={() => startAttendanceSession(courseCode)}
+                disabled={busyId === `start-${courseCode}` || state.sessions.some((item) => item.courseCode === courseCode && item.status === "Active")}
+                style={{ flex: 1, borderRadius: 14, backgroundColor: "rgba(125, 211, 252, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === `start-${courseCode}` || state.sessions.some((item) => item.courseCode === courseCode && item.status === "Active") ? 0.5 : 1 }}
+              >
+                <Text style={{ color: "#cffafe", fontWeight: "700", textAlign: "center" }}>{busyId === `start-${courseCode}` ? "Starting..." : `Start ${courseCode}`}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={{ marginTop: 14, gap: 12 }}>
+            {state.sessions.map((item) => (
+              <View key={item.id} style={{ borderRadius: 18, padding: 14, backgroundColor: "rgba(7,17,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" }}>
+                <Text style={{ color: "#eff6ff", fontSize: 16, fontWeight: "700" }}>{item.courseCode}</Text>
+                <Text style={{ color: "#67e8f9", marginTop: 6 }}>{item.qrCode} | {item.status}</Text>
+                <Text style={{ color: "#bfd3ea", marginTop: 6 }}>Started {formatTimestamp(item.startedAtUtc)}</Text>
+                {item.closedAtUtc ? <Text style={{ color: "#fde68a", marginTop: 6 }}>Closed {formatTimestamp(item.closedAtUtc)}</Text> : null}
+                <Pressable
+                  onPress={() => closeAttendanceSession(item)}
+                  disabled={busyId === item.id || item.status === "Closed"}
+                  style={{ marginTop: 12, borderRadius: 14, backgroundColor: "rgba(253, 224, 71, 0.16)", paddingHorizontal: 12, paddingVertical: 12, opacity: busyId === item.id || item.status === "Closed" ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: "#fef3c7", fontWeight: "700", textAlign: "center" }}>{busyId === item.id ? "Working..." : "Close Session"}</Text>
+                </Pressable>
+              </View>
+            ))}
+            {state.sessions.length === 0 ? <Text style={{ color: "#94a3b8" }}>No attendance sessions are available yet.</Text> : null}
+          </View>
+        </AnimatedSurface>
+
+        <AnimatedSurface
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ delay: 400, type: "timing", duration: 450 }}
           style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
         >
           <Text style={{ color: "#fda4af", fontSize: 13 }}>Grading Queue</Text>
@@ -426,7 +594,7 @@ export default function TeacherMobilePage() {
         <AnimatedSurface
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ delay: 400, type: "timing", duration: 450 }}
+          transition={{ delay: 460, type: "timing", duration: 450 }}
           style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
         >
           <Text style={{ color: "#67e8f9", fontSize: 13 }}>Advising Actions</Text>
@@ -462,7 +630,7 @@ export default function TeacherMobilePage() {
         <AnimatedSurface
           from={{ opacity: 0, translateY: 12 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ delay: 460, type: "timing", duration: 450 }}
+          transition={{ delay: 520, type: "timing", duration: 450 }}
           style={{ borderRadius: 24, padding: 20, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}
         >
           <Text style={{ color: "#7dd3fc", fontSize: 13 }}>Faculty Updates</Text>

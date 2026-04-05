@@ -16,10 +16,10 @@
 - `authorization-service`: centralized roles, permissions, user assignments, and route policy mappings
 - `academic-service`: curriculum, courses, credit units, semester scheduling, and faculty advising-note workflows
 - `organization-service`: colleges, campuses, departments, staff directory, and public academic catalog ownership
-- `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload and verification endpoints
+- `attendance-service`: QR and AI attendance capture pipeline with face-recognition upload, teacher-scoped session control, and verification endpoints
 - `communication-service`: announcements, principal blogs, push notification orchestration
 - `exam-service`: assessment publication, GPA records, and teacher grading-review progression
-- `finance-service`: payment recording, provider-aware payment sessions, HMAC webhook processing, refunds, reconciliation runs
+- `finance-service`: payment recording, provider-aware payment sessions, student-initiated checkout session creation, HMAC webhook processing, refunds, reconciliation runs
 - `ai-assistant-service`: role-aware natural-language assistant with Semantic Kernel orchestration, typed service integrations, and RAG hooks
 - `student-service`: student profiles, department mapping, academic status, enrollments, and request-fulfillment workflows
 - `hostel-service`: rooms, allocations, visitor logs
@@ -72,6 +72,7 @@ To close the most visible product gaps without creating a parallel architecture,
 - admin and operations pages should surface inquiry volume, application progression, counseling status, document verification, applicant follow-ups, reminder queues, and public-content health next to existing audit and communication views
 - student-service should carry explicit request-fulfillment states so student and admin/mobile surfaces can share the same certificate and document-service workflow model
 - academic-service and exam-service should expose teacher-scoped advising and grading actions so faculty experiences are operational, not only observational
+- attendance-service and finance-service should expose role-scoped transactional actions so teachers can manage live attendance sessions and students can initiate their own payment journeys inside the product
 - production-facing admin views should also surface federation and payment rollout readiness so release risk is not hidden inside appsettings only
 
 ## Near-Term Architectural Follow-Up

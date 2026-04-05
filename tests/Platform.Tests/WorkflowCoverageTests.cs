@@ -220,6 +220,26 @@ public sealed class WorkflowCoverageTests
     }
 
     [Fact]
+    public void StudentFinanceSummary_TracksPaidTransactionsAndPendingSessions()
+    {
+        var summary = StudentFinanceSummary.Create(
+            [
+                new Payment { Amount = 45000, Status = "Paid", InvoiceNumber = "INV-2026-001", PaidAtUtc = DateTimeOffset.UtcNow.AddDays(-5) },
+                new Payment { Amount = 12000, Status = "Paid", InvoiceNumber = "INV-2026-002", PaidAtUtc = DateTimeOffset.UtcNow.AddDays(-1) }
+            ],
+            [
+                new PaymentSession { Status = "Pending", InvoiceNumber = "INV-2026-003", CreatedAtUtc = DateTimeOffset.UtcNow },
+                new PaymentSession { Status = "Paid", InvoiceNumber = "INV-2026-000", CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2) }
+            ]);
+
+        summary.TotalPaid.Should().Be(57000);
+        summary.TotalTransactions.Should().Be(2);
+        summary.PendingSessions.Should().Be(1);
+        summary.LatestPayment?.InvoiceNumber.Should().Be("INV-2026-002");
+        summary.LatestSession?.InvoiceNumber.Should().Be("INV-2026-003");
+    }
+
+    [Fact]
     public void AdvisingNote_RetainsFacultyFollowUpMetadata()
     {
         var createdAtUtc = DateTimeOffset.UtcNow;

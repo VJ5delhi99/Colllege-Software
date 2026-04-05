@@ -226,14 +226,64 @@ app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, H
         .OrderByDescending(x => x.CreatedAtUtc)
         .ToListAsync();
 
-    var paidPayments = payments.Where(x => string.Equals(x.Status, "Paid", StringComparison.OrdinalIgnoreCase)).ToList();
+    return Results.Ok(StudentFinanceSummary.Create(payments, sessions));
+}).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
+
+app.MapPost("/api/v1/students/{studentId:guid}/payment-sessions", async (Guid studentId, HttpContext httpContext, [FromBody] StudentPaymentSessionRequest request, FinanceDbContext dbContext, PaymentGatewayCatalog gateways) =>
+{
+    if (!CanAccessStudentFinance(httpContext, studentId))
+    {
+        return Results.Forbid();
+    }
+
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var providerConfig = gateways.GetProvider(request.Provider);
+    if (providerConfig is null)
+    {
+        return Results.BadRequest(new { message = "Unsupported payment provider" });
+    }
+
+    if (!providerConfig.Enabled || !providerConfig.IsReadyForCheckout)
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} is not available for student checkout right now." });
+    }
+
+    if (!providerConfig.SupportedCurrencies.Contains(request.Currency, StringComparer.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { message = $"{request.Provider} does not support {request.Currency} in the current rollout." });
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var session = new PaymentSession
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        StudentId = studentId,
+        Provider = request.Provider,
+        Amount = request.Amount,
+        Currency = request.Currency,
+        InvoiceNumber = request.InvoiceNumber,
+        ProviderReference = $"{request.Provider.ToLowerInvariant()}_{Guid.NewGuid():N}",
+        Status = "Pending",
+        CreatedAtUtc = DateTimeOffset.UtcNow,
+        CheckoutUrl = $"{providerConfig.CheckoutBaseUrl.TrimEnd('/')}/{request.Provider.ToLowerInvariant()}/checkout/{Guid.NewGuid():N}",
+        ProviderPublicKey = providerConfig.PublicKey
+    };
+
+    dbContext.PaymentSessions.Add(session);
+    dbContext.AuditLogs.Add(FinanceAuditLog.Create(tenantId, "student.payment-session.created", session.Id.ToString(), httpContext.User.Identity?.Name ?? "finance-service", $"Student payment session created for invoice {session.InvoiceNumber} via {session.Provider}."));
+    await dbContext.SaveChangesAsync();
+
     return Results.Ok(new
     {
-        totalPaid = paidPayments.Sum(x => x.Amount),
-        totalTransactions = paidPayments.Count,
-        pendingSessions = sessions.Count(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
-        latestPayment = payments.FirstOrDefault(),
-        latestSession = sessions.FirstOrDefault()
+        sessionId = session.Id,
+        provider = session.Provider,
+        invoiceNumber = session.InvoiceNumber,
+        providerReference = session.ProviderReference,
+        checkoutUrl = session.CheckoutUrl,
+        publishableKey = session.ProviderPublicKey,
+        amount = session.Amount,
+        currency = session.Currency
     });
 }).RequireRoles("Student", "Principal", "Admin", "FinanceStaff");
 
@@ -328,8 +378,29 @@ static bool CanAccessStudentFinance(HttpContext httpContext, Guid requestedUserI
 
 public sealed record RecordPaymentRequest(string TenantId, Guid StudentId, decimal Amount, string Currency, string Provider, string Status, string InvoiceNumber);
 public sealed record PaymentSessionRequest(string TenantId, Guid StudentId, decimal Amount, string Currency, string Provider, string InvoiceNumber);
+public sealed record StudentPaymentSessionRequest(string TenantId, decimal Amount, string Currency, string Provider, string InvoiceNumber);
 public sealed record PaymentWebhookRequest(string ProviderReference, string Status, string Signature, string PayloadJson);
 public sealed record RefundRequest(string TenantId, Guid PaymentId, decimal Amount, string Reason);
+public sealed record StudentFinanceSummary(
+    decimal TotalPaid,
+    int TotalTransactions,
+    int PendingSessions,
+    Payment? LatestPayment,
+    PaymentSession? LatestSession)
+{
+    public static StudentFinanceSummary Create(IReadOnlyCollection<Payment> payments, IReadOnlyCollection<PaymentSession> sessions)
+    {
+        var orderedPayments = payments.OrderByDescending(x => x.PaidAtUtc).ToArray();
+        var orderedSessions = sessions.OrderByDescending(x => x.CreatedAtUtc).ToArray();
+        var paidPayments = orderedPayments.Where(x => string.Equals(x.Status, "Paid", StringComparison.OrdinalIgnoreCase)).ToArray();
+        return new StudentFinanceSummary(
+            paidPayments.Sum(x => x.Amount),
+            paidPayments.Length,
+            orderedSessions.Count(x => string.Equals(x.Status, "Pending", StringComparison.OrdinalIgnoreCase)),
+            orderedPayments.FirstOrDefault(),
+            orderedSessions.FirstOrDefault());
+    }
+}
 
 public sealed class Payment
 {

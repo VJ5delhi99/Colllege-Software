@@ -22,6 +22,15 @@ type AttendanceAlert = {
   totalRecords: number;
 };
 
+type AttendanceSessionItem = {
+  id: string;
+  courseCode: string;
+  qrCode: string;
+  status: string;
+  startedAtUtc: string;
+  closedAtUtc?: string | null;
+};
+
 type GradeReviewItem = {
   id: string;
   studentName: string;
@@ -54,6 +63,7 @@ type TeacherState = {
   gradingReady: number;
   ownedCourses: CourseItem[];
   alerts: AttendanceAlert[];
+  sessions: AttendanceSessionItem[];
   gradeReviews: GradeReviewItem[];
   advisingNotes: AdvisingNoteItem[];
   notifications: Array<{ id: string; title: string; message: string; createdAtUtc: string }>;
@@ -78,6 +88,10 @@ const demoState: TeacherState = {
   alerts: [
     { courseCode: "PHY201", percentage: 66.67, totalRecords: 3 },
     { courseCode: "CSE401", percentage: 100, totalRecords: 2 }
+  ],
+  sessions: [
+    { id: "session-1", courseCode: "PHY201", qrCode: "QR-PHY201-1", status: "Active", startedAtUtc: "2026-04-05T09:00:00Z" },
+    { id: "session-2", courseCode: "CSE401", qrCode: "QR-CSE401-9", status: "Closed", startedAtUtc: "2026-04-04T14:00:00Z", closedAtUtc: "2026-04-04T15:00:00Z" }
   ],
   gradeReviews: [
     { id: "grade-1", studentName: "Aarav Sharma", courseCode: "CSE401", assessmentName: "Lab Evaluation 1", status: "Pending Review", reviewerNote: "Need to double-check the replication diagram rubric." },
@@ -137,26 +151,28 @@ export default function TeacherPage() {
           "X-Tenant-Id": session.user.tenantId
         };
 
-        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse] = await Promise.all([
+        const [teacherSummaryResponse, attendanceResponse, coursesResponse, notificationsResponse, gradingResponse, advisingResponse, sessionsResponse] = await Promise.all([
           fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/summary`, { headers }),
           fetch(`${apiConfig.academic()}/api/v1/courses?facultyId=${session.user.id}&pageSize=10`, { headers }),
           fetch(`${apiConfig.communication()}/api/v1/notifications?audience=${encodeURIComponent(session.user.role)}&pageSize=5`, { headers }),
           fetch(`${apiConfig.exam()}/api/v1/teachers/${session.user.id}/grading-summary`, { headers }),
-          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers })
+          fetch(`${apiConfig.academic()}/api/v1/teachers/${session.user.id}/advising-notes`, { headers }),
+          fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions?pageSize=6`, { headers })
         ]);
 
-        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok) {
+        if (!teacherSummaryResponse.ok || !attendanceResponse.ok || !coursesResponse.ok || !notificationsResponse.ok || !gradingResponse.ok || !advisingResponse.ok || !sessionsResponse.ok) {
           throw new Error("Unable to load the teacher workspace.");
         }
 
-        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload] = await Promise.all([
+        const [teacherSummaryPayload, attendancePayload, coursesPayload, notificationsPayload, gradingPayload, advisingPayload, sessionsPayload] = await Promise.all([
           teacherSummaryResponse.json(),
           attendanceResponse.json(),
           coursesResponse.json(),
           notificationsResponse.json(),
           gradingResponse.json(),
-          advisingResponse.json()
+          advisingResponse.json(),
+          sessionsResponse.json()
         ]);
 
         const ownedCourses = (coursesPayload?.items ?? []) as CourseItem[];
@@ -181,6 +197,7 @@ export default function TeacherPage() {
             gradingReady: gradingPayload?.readyToPublish ?? 0,
             ownedCourses,
             alerts: (attendancePayload?.alerts ?? []) as AttendanceAlert[],
+            sessions: (sessionsPayload?.items ?? []) as AttendanceSessionItem[],
             gradeReviews: (gradingPayload?.items ?? []) as GradeReviewItem[],
             advisingNotes: (advisingPayload?.items ?? []) as AdvisingNoteItem[],
             notifications: notificationsPayload?.items ?? []
@@ -255,6 +272,110 @@ export default function TeacherPage() {
       setError(null);
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Unable to update grading review.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function startAttendanceSession(course: CourseItem) {
+    setBusyId(`start-${course.id}`);
+
+    try {
+      if (demoMode) {
+        const nextSession: AttendanceSessionItem = {
+          id: `demo-session-${Date.now()}`,
+          courseCode: course.courseCode,
+          qrCode: `QR-${course.courseCode}-${Date.now().toString().slice(-4)}`,
+          status: "Active",
+          startedAtUtc: new Date().toISOString()
+        };
+        setState((current) => ({
+          ...current,
+          activeSessions: current.activeSessions + 1,
+          sessions: [nextSession, ...current.sessions.filter((item) => !(item.courseCode === course.courseCode && item.status === "Active"))].slice(0, 6)
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          courseCode: course.courseCode
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Unable to start attendance session.");
+      }
+
+      const payload = (await response.json()) as AttendanceSessionItem;
+      setState((current) => {
+        const nextSessions = [payload, ...current.sessions.filter((item) => item.id !== payload.id)].slice(0, 6);
+        return {
+          ...current,
+          activeSessions: nextSessions.filter((item) => item.status === "Active").length,
+          sessions: nextSessions
+        };
+      });
+      setError(null);
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "Unable to start attendance session.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function closeAttendanceSession(item: AttendanceSessionItem) {
+    setBusyId(item.id);
+
+    try {
+      if (demoMode) {
+        setState((current) => {
+          const nextSessions = current.sessions.map((session) =>
+            session.id === item.id ? { ...session, status: "Closed", closedAtUtc: new Date().toISOString() } : session
+          );
+          return {
+            ...current,
+            activeSessions: nextSessions.filter((session) => session.status === "Active").length,
+            sessions: nextSessions
+          };
+        });
+        return;
+      }
+
+      const session = await getAdminSession();
+      const response = await fetch(`${apiConfig.attendance()}/api/v1/teachers/${session.user.id}/sessions/${item.id}/close`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Unable to close attendance session.");
+      }
+
+      const payload = (await response.json()) as AttendanceSessionItem;
+      setState((current) => {
+        const nextSessions = current.sessions.map((session) => (session.id === item.id ? { ...session, ...payload } : session));
+        return {
+          ...current,
+          activeSessions: nextSessions.filter((session) => session.status === "Active").length,
+          sessions: nextSessions
+        };
+      });
+      setError(null);
+    } catch (sessionError) {
+      setError(sessionError instanceof Error ? sessionError.message : "Unable to close attendance session.");
     } finally {
       setBusyId(null);
     }
@@ -396,7 +517,7 @@ export default function TeacherPage() {
 
           <article className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Teaching operations</p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">LMS workload and attendance risk live beside grading now</h2>
+            <h2 className="mt-3 text-2xl font-semibold text-white">LMS workload and attendance control live beside grading now</h2>
             <div className="mt-6 grid gap-4 md:grid-cols-3">
               <div className="rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
                 <p className="text-sm text-slate-400">Teaching load</p>
@@ -411,6 +532,19 @@ export default function TeacherPage() {
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.lmsAssignments}</p>
               </div>
             </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {state.ownedCourses.slice(0, 2).map((course) => (
+                <button
+                  key={course.id}
+                  type="button"
+                  onClick={() => startAttendanceSession(course)}
+                  disabled={busyId === `start-${course.id}` || state.sessions.some((item) => item.courseCode === course.courseCode && item.status === "Active")}
+                  className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-cyan-100 disabled:opacity-50"
+                >
+                  {busyId === `start-${course.id}` ? "Starting..." : `Start ${course.courseCode}`}
+                </button>
+              ))}
+            </div>
             <div className="mt-5 space-y-4">
               {state.alerts.map((item) => (
                 <article key={`${item.courseCode}-${item.totalRecords}`} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
@@ -419,6 +553,29 @@ export default function TeacherPage() {
                     <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-amber-100">{item.percentage.toFixed(2)}%</span>
                   </div>
                   <p className="mt-2 text-sm leading-6 text-slate-400">{item.totalRecords} captured records in the current teaching history.</p>
+                </article>
+              ))}
+            </div>
+            <div className="mt-5 space-y-4">
+              {state.sessions.map((item) => (
+                <article key={item.id} className="rounded-[1.3rem] border border-white/10 bg-white/5 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-white">{item.courseCode}</p>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item.status}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{item.qrCode}</p>
+                  <p className="mt-3 text-xs uppercase tracking-[0.16em] text-cyan-200">Started {formatTimestamp(item.startedAtUtc)}</p>
+                  {item.closedAtUtc ? <p className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-200">Closed {formatTimestamp(item.closedAtUtc)}</p> : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => closeAttendanceSession(item)}
+                      disabled={busyId === item.id || item.status === "Closed"}
+                      className="rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs font-medium uppercase tracking-[0.14em] text-amber-100 disabled:opacity-50"
+                    >
+                      {busyId === item.id ? "Updating..." : "Close Session"}
+                    </button>
+                  </div>
                 </article>
               ))}
             </div>

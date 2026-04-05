@@ -175,6 +175,86 @@ app.MapGet("/api/v1/teachers/{teacherId:guid}/summary", async (Guid teacherId, H
     return Results.Ok(TeacherAttendanceSummary.Create(sessions, records));
 }).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
 
+app.MapGet("/api/v1/teachers/{teacherId:guid}/sessions", async (Guid teacherId, HttpContext httpContext, AttendanceDbContext dbContext, int pageSize = 5) =>
+{
+    if (!TeacherAttendanceAccessPolicy.CanAccessTeacherAttendance(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var items = await dbContext.Sessions
+        .Where(x => x.TenantId == tenantId && x.ProfessorId == teacherId)
+        .OrderByDescending(x => x.StartedAtUtc)
+        .Take(Math.Clamp(pageSize, 1, 20))
+        .ToListAsync();
+
+    return Results.Ok(new
+    {
+        total = items.Count,
+        active = items.Count(item => item.Status == "Active"),
+        items
+    });
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/sessions", async (Guid teacherId, HttpContext httpContext, [FromBody] CreateTeacherSessionRequest request, AttendanceDbContext dbContext) =>
+{
+    if (!TeacherAttendanceAccessPolicy.CanAccessTeacherAttendance(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    httpContext.EnsureTenantAccess(request.TenantId);
+    var tenantId = httpContext.GetValidatedTenantId();
+    var activeSession = await dbContext.Sessions.FirstOrDefaultAsync(x => x.TenantId == tenantId && x.ProfessorId == teacherId && x.CourseCode == request.CourseCode && x.Status == "Active");
+    if (activeSession is not null)
+    {
+        return Results.Conflict(new { message = $"An active attendance session already exists for {request.CourseCode}." });
+    }
+
+    var session = new AttendanceSession
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        CourseCode = request.CourseCode.Trim(),
+        ProfessorId = teacherId,
+        QrCode = $"QR-{Guid.NewGuid():N}"[..12],
+        Status = "Active",
+        StartedAtUtc = DateTimeOffset.UtcNow
+    };
+
+    dbContext.Sessions.Add(session);
+    dbContext.AuditLogs.Add(AttendanceAuditLog.Create(tenantId, "attendance.teacher-session.created", session.Id.ToString(), httpContext.User.Identity?.Name ?? "attendance-service", $"Teacher session created for course {session.CourseCode}."));
+    await dbContext.SaveChangesAsync();
+    return Results.Created($"/api/v1/teachers/{teacherId}/sessions/{session.Id}", session);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
+app.MapPost("/api/v1/teachers/{teacherId:guid}/sessions/{sessionId:guid}/close", async (Guid teacherId, Guid sessionId, HttpContext httpContext, AttendanceDbContext dbContext) =>
+{
+    if (!TeacherAttendanceAccessPolicy.CanAccessTeacherAttendance(httpContext, teacherId))
+    {
+        return Results.Forbid();
+    }
+
+    var tenantId = httpContext.GetValidatedTenantId();
+    var session = await dbContext.Sessions.FirstOrDefaultAsync(x => x.Id == sessionId && x.TenantId == tenantId && x.ProfessorId == teacherId);
+    if (session is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (session.Status == "Closed")
+    {
+        return Results.Ok(session);
+    }
+
+    session.Status = "Closed";
+    session.ClosedAtUtc = DateTimeOffset.UtcNow;
+    dbContext.AuditLogs.Add(AttendanceAuditLog.Create(tenantId, "attendance.teacher-session.closed", session.Id.ToString(), httpContext.User.Identity?.Name ?? "attendance-service", $"Teacher session for course {session.CourseCode} was closed."));
+    await dbContext.SaveChangesAsync();
+    return Results.Ok(session);
+}).RequireRoles("Professor", "Principal", "Admin", "DepartmentHead");
+
 app.MapGet("/api/v1/students/{studentId:guid}/summary", async (Guid studentId, HttpContext httpContext, AttendanceDbContext dbContext) =>
 {
     var records = await dbContext.AttendanceRecords.Where(x => x.TenantId == httpContext.GetValidatedTenantId() && x.StudentId == studentId).ToListAsync();
@@ -241,6 +321,7 @@ public sealed class FaceRecognitionClient(HttpClient httpClient)
 }
 
 public sealed record CreateSessionRequest(string TenantId, string CourseCode, Guid ProfessorId);
+public sealed record CreateTeacherSessionRequest(string TenantId, string CourseCode);
 public sealed record RecordAttendanceRequest(string TenantId, Guid StudentId, string CourseCode, string Method, string Status);
 public sealed record FaceRecognitionRequest(Guid StudentId, string ImageReference);
 public sealed record FaceUploadRequest(string TenantId, Guid StudentId);

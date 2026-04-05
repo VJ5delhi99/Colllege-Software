@@ -34,6 +34,8 @@ type StudentState = {
   nextCourse: string;
   totalPaid: number;
   pendingPayments: number;
+  latestInvoice: string;
+  latestFinanceStatus: string;
   academicStatus: string;
   department: string;
   batch: string;
@@ -53,6 +55,8 @@ const demoState: StudentState = {
   nextCourse: "Distributed Systems",
   totalPaid: 57000,
   pendingPayments: 1,
+  latestInvoice: "INV-2026-003",
+  latestFinanceStatus: "Pending payment session via PayPal",
   academicStatus: "Active",
   department: "Computer Science",
   batch: "2022",
@@ -120,6 +124,7 @@ export default function StudentPage() {
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [requesting, setRequesting] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
   const demoMode = isDemoModeEnabled();
 
   useEffect(() => {
@@ -179,6 +184,12 @@ export default function StudentPage() {
             nextCourse: academicPayload?.nextCourse?.title ?? "No class scheduled",
             totalPaid: financePayload?.totalPaid ?? 0,
             pendingPayments: financePayload?.pendingSessions ?? 0,
+            latestInvoice: financePayload?.latestSession?.invoiceNumber ?? financePayload?.latestPayment?.invoiceNumber ?? "No invoice",
+            latestFinanceStatus: financePayload?.latestSession
+              ? `Pending payment session via ${financePayload.latestSession.provider ?? "gateway"}`
+              : financePayload?.latestPayment
+                ? `Last paid via ${financePayload.latestPayment.provider ?? "gateway"}`
+                : "No finance activity yet",
             academicStatus: workspacePayload?.academicStatus ?? "Unknown",
             department: workspacePayload?.department ?? "Not mapped",
             batch: workspacePayload?.batch ?? "N/A",
@@ -271,6 +282,58 @@ export default function StudentPage() {
     }
   }
 
+  async function startPaymentSession() {
+    setPaying(true);
+
+    try {
+      if (demoMode) {
+        setState((current) => ({
+          ...current,
+          pendingPayments: current.pendingPayments + 1,
+          latestInvoice: `INV-${new Date().getFullYear()}-010`,
+          latestFinanceStatus: "Pending payment session via Razorpay"
+        }));
+        return;
+      }
+
+      const session = await getAdminSession();
+      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`;
+      const response = await fetch(`${apiConfig.finance()}/api/v1/students/${session.user.id}/payment-sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+          "X-Tenant-Id": session.user.tenantId
+        },
+        body: JSON.stringify({
+          tenantId: session.user.tenantId,
+          amount: 8000,
+          currency: "INR",
+          provider: "Razorpay",
+          invoiceNumber
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Unable to create payment session.");
+      }
+
+      const payload = await response.json();
+      setState((current) => ({
+        ...current,
+        pendingPayments: current.pendingPayments + 1,
+        latestInvoice: payload?.invoiceNumber ?? invoiceNumber,
+        latestFinanceStatus: `Pending payment session via ${payload?.provider ?? "gateway"}`
+      }));
+      setError(null);
+    } catch (paymentError) {
+      setError(paymentError instanceof Error ? paymentError.message : "Unable to create payment session.");
+    } finally {
+      setPaying(false);
+    }
+  }
+
   return (
     <main className="panel-grid min-h-screen px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -338,6 +401,17 @@ export default function StudentPage() {
                 <p className="text-sm text-slate-400">Pending payments</p>
                 <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : state.pendingPayments}</p>
               </div>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <p className="text-sm text-slate-300">{loading ? "Loading finance..." : `${state.latestInvoice} | ${state.latestFinanceStatus}`}</p>
+              <button
+                type="button"
+                onClick={startPaymentSession}
+                disabled={paying}
+                className="rounded-full border border-amber-300/20 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-100 disabled:opacity-60"
+              >
+                {paying ? "Preparing..." : "Start Fee Payment"}
+              </button>
             </div>
           </article>
 

@@ -30,6 +30,8 @@ The repository already had strong service coverage, but the shipped experience s
 - Added student self-service workflows and richer workspace context so requests, enrollments, and learning content are visible in both web and mobile student experiences.
 - Expanded the teacher surface to include owned courses, attendance-risk alerts, active session visibility, LMS workload, grading-state actions, and advising-note capture instead of only generic summary numbers.
 - Added end-to-end certificate-style request fulfillment support so student requests can move from submission to approval and issuance with visible fulfillment references across student and admin surfaces.
+- Added teacher-scoped attendance-session control so faculty can now start and close live attendance windows from both web and mobile workspaces.
+- Added student-initiated payment-session creation so finance no longer stops at summary visibility inside the student-facing product.
 - Updated architecture and scorecard docs so the current solution design matches the codebase more closely.
 
 ## Remaining Strategic Work
