@@ -45,6 +45,24 @@ export function setAdminSession(session: AuthSession) {
   }
 }
 
+export function getStoredAdminSession(): AuthSession | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const cached = window.sessionStorage.getItem(SESSION_KEY);
+  if (!cached) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(cached) as AuthSession;
+  } catch {
+    window.sessionStorage.removeItem(SESSION_KEY);
+    return null;
+  }
+}
+
 export function clearAdminSession() {
   if (typeof window !== "undefined") {
     window.sessionStorage.removeItem(SESSION_KEY);
@@ -52,26 +70,9 @@ export function clearAdminSession() {
 }
 
 export async function getAdminSession(): Promise<AuthSession> {
-  if (typeof window !== "undefined") {
-    const cached = window.sessionStorage.getItem(SESSION_KEY);
-    if (cached) {
-      return JSON.parse(cached) as AuthSession;
-    }
-  }
-
-  if (isDemoModeEnabled()) {
-    const session: AuthSession = {
-      ...demoSession,
-      user: {
-        id: demoSession.userId,
-        email: demoSession.email,
-        role: demoSession.role,
-        tenantId: demoSession.tenantId
-      }
-    };
-
-    setAdminSession(session);
-    return session;
+  const cached = getStoredAdminSession();
+  if (cached) {
+    return cached;
   }
 
   throw new Error(`No admin session is available. Authenticate through the identity flow and persist the session under ${SESSION_KEY}.`);
@@ -142,7 +143,7 @@ export async function logoutAdmin() {
 
 export async function requestPasswordReset(email: string, tenantId = "default") {
   if (isDemoModeEnabled()) {
-    return { message: `Demo reset code issued for ${email} in tenant ${tenantId}.` };
+    return { message: `Demo reset code issued for ${email} under college code ${tenantId}.` };
   }
 
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/password-reset/request`, {
@@ -165,7 +166,7 @@ export async function confirmPasswordReset(email: string, code: string, newPassw
       throw new Error("Demo validation failed. Use a valid code and stronger password.");
     }
 
-    return { message: `Demo password updated for ${email} in tenant ${tenantId}.` };
+    return { message: `Demo password updated for ${email} under college code ${tenantId}.` };
   }
 
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/password-reset/confirm`, {
@@ -184,7 +185,7 @@ export async function confirmPasswordReset(email: string, code: string, newPassw
 
 export async function sendEmailVerification(email: string, tenantId = "default") {
   if (isDemoModeEnabled()) {
-    return { message: `Demo verification code issued for ${email} in tenant ${tenantId}.` };
+    return { message: `Demo verification code issued for ${email} under college code ${tenantId}.` };
   }
 
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/email-verification/send`, {
@@ -207,7 +208,7 @@ export async function confirmEmailVerification(email: string, code: string, tena
       throw new Error("Demo verification code is invalid.");
     }
 
-    return { message: `Demo email verified for ${email} in tenant ${tenantId}.` };
+    return { message: `Demo email verified for ${email} under college code ${tenantId}.` };
   }
 
   const response = await fetch(`${apiConfig.identity()}/api/v1/auth/email-verification/confirm`, {

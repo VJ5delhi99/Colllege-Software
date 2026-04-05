@@ -15,22 +15,22 @@ type RolePortalState = {
 };
 
 const demoStudentState: RolePortalState = {
-  headline: "Student workspace with the next academic step in front.",
+  headline: "Your student page with the next important step in front.",
   summary: "Track attendance, results, upcoming classes, and fee posture from a single student-friendly surface.",
-  primaryAction: { label: "Open student workspace", href: "/student" },
+  primaryAction: { label: "Open student page", href: "/student" },
   secondaryAction: { label: "Open public homepage", href: "/" },
   cards: [
     { title: "Attendance", value: "83%", note: "Physics recovery needed this week." },
-    { title: "Fee status", value: "INR 57,000", note: "Captured paid transactions for this tenant snapshot." },
+    { title: "Fee status", value: "INR 57,000", note: "Payments recorded for this account." },
     { title: "Next class", value: "CSE401", note: "Starts tomorrow at 9:30 AM." },
     { title: "Notifications", value: "2", note: "Unread academic notices." }
   ]
 };
 
 const demoTeacherState: RolePortalState = {
-  headline: "Teacher workflow that keeps classes, attendance, and student outcomes connected.",
+  headline: "Your teaching page for classes, attendance, and student progress.",
   summary: "Manage attendance capture, class cadence, and communication without hopping between disconnected tools.",
-  primaryAction: { label: "Open teacher workspace", href: "/teacher" },
+  primaryAction: { label: "Open teacher page", href: "/teacher" },
   secondaryAction: { label: "Review roles", href: "/rbac" },
   cards: [
     { title: "Active sessions", value: "3", note: "Classes still open for attendance capture." },
@@ -42,9 +42,9 @@ const demoTeacherState: RolePortalState = {
 
 const demoAdminState: RolePortalState = {
   headline: "Admin oversight across campuses, people, and institutional risk.",
-  summary: "Use the admin portal to move from public discovery into authenticated action with analytics, audit visibility, and role controls.",
-  primaryAction: { label: "Open admin workspace", href: "/admin" },
-  secondaryAction: { label: "Review RBAC", href: "/rbac" },
+  summary: "Use the admin page to move from public inquiries into day-to-day action with reports, updates, and access control.",
+  primaryAction: { label: "Open admin page", href: "/admin" },
+  secondaryAction: { label: "Review permissions", href: "/rbac" },
   cards: [
     { title: "Enrollment", value: "2,480", note: "Across active colleges and campuses." },
     { title: "Fee collection", value: "INR 57,000", note: "Paid transaction total in current snapshot." },
@@ -86,13 +86,13 @@ function buildPortalState(
 
   if (role === "Student") {
     return {
-      headline: "Student workspace with the next academic step in front.",
+      headline: "Your student page with the next important step in front.",
       summary: "See attendance health, fee posture, upcoming classes, and notifications in a calm surface built for daily student decisions.",
-      primaryAction: { label: "Open student workspace", href: "/student" },
-      secondaryAction: { label: "Open auth", href: "/auth" },
+      primaryAction: { label: "Open student page", href: "/student" },
+      secondaryAction: { label: "Open sign in", href: "/auth" },
       cards: [
         { title: "Attendance", value: `${metrics.attendancePercentage ?? 0}%`, note: "Current attendance summary." },
-        { title: "Fee status", value: formatCurrency(metrics.feeCollection ?? 0), note: "Recorded paid transactions under this profile." },
+        { title: "Fee status", value: formatCurrency(metrics.feeCollection ?? 0), note: "Payments recorded for this account." },
         { title: "Next class", value: metrics.nextCourse ?? "No class scheduled", note: "Closest academic event from the current feed." },
         { title: "Notifications", value: `${metrics.notificationCount ?? 0}`, note: "Unread student-facing alerts." }
       ]
@@ -101,9 +101,9 @@ function buildPortalState(
 
   if (role === "Professor" || role === "Teacher") {
     return {
-      headline: "Teacher workflow that keeps classes, attendance, and student outcomes connected.",
+      headline: "Your teaching page for classes, attendance, and student progress.",
       summary: "Stay on top of active sessions, communication, and operational issues without losing context between teaching and administration.",
-      primaryAction: { label: "Open teacher workspace", href: "/teacher" },
+      primaryAction: { label: "Open teacher page", href: "/teacher" },
       secondaryAction: { label: "Back to homepage", href: "/" },
       cards: [
         { title: "Attendance", value: `${metrics.attendancePercentage ?? 0}%`, note: "Current attendance rate across captured records." },
@@ -117,10 +117,10 @@ function buildPortalState(
   return {
     headline: "Admin oversight across campuses, people, and institutional risk.",
     summary: "Move directly into operational control with live signals for enrollment, finance, announcements, and recent audited changes.",
-    primaryAction: { label: "Open admin workspace", href: "/admin" },
-    secondaryAction: { label: "Review RBAC", href: "/rbac" },
+    primaryAction: { label: "Open admin page", href: "/admin" },
+    secondaryAction: { label: "Review permissions", href: "/rbac" },
     cards: [
-      { title: "Enrollment", value: `${metrics.userTotal ?? 0}`, note: "Visible users in the current tenant scope." },
+      { title: "Enrollment", value: `${metrics.userTotal ?? 0}`, note: "Visible users in the current college view." },
       { title: "Fee collection", value: formatCurrency(metrics.feeCollection ?? 0), note: "Paid transaction total." },
       { title: "Audit events", value: `${metrics.auditCount ?? 0}`, note: "Recent traced changes across services." },
       { title: "Announcements", value: `${metrics.announcementCount ?? 0}`, note: "Published communication volume." }
@@ -141,15 +141,17 @@ export default function PortalPage() {
 
     async function load() {
       try {
+        const activeSession = await getAdminSession();
+
         if (demoMode) {
           if (!cancelled) {
-            setPortalState(demoAdminState);
+            setSession(activeSession);
+            setPortalState(buildPortalState(activeSession, {}));
             setError(null);
           }
           return;
         }
 
-        const activeSession = await getAdminSession();
         const headers = {
           Authorization: `Bearer ${activeSession.accessToken}`,
           "X-Tenant-Id": activeSession.user.tenantId
@@ -217,6 +219,10 @@ export default function PortalPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof Error && loadError.message.includes("No admin session")) {
+            window.location.href = "/auth?redirect=%2Fportal";
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Unexpected portal error.");
         }
       } finally {
@@ -257,7 +263,7 @@ export default function PortalPage() {
         <section className="rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(7,18,34,0.95),rgba(14,40,73,0.86)_58%,rgba(5,13,25,0.96))] px-6 py-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)] sm:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">Role-aware portal</p>
+              <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">Main Menu</p>
               <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{heroState.headline}</h1>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">{heroState.summary}</p>
               <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -265,7 +271,7 @@ export default function PortalPage() {
                   {loading ? "Syncing" : roleLabel}
                 </span>
                 <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-100">
-                  {demoMode ? "Demo Mode" : session?.user.tenantId ?? "Secure tenant context"}
+                  {demoMode ? "Demo mode" : session?.user.tenantId ?? "Signed in"}
                 </span>
               </div>
             </div>
@@ -328,9 +334,9 @@ export default function PortalPage() {
           </article>
           <article className="rounded-[1.75rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
             <p className="text-xs uppercase tracking-[0.3em] text-fuchsia-300">Admin path</p>
-            <h2 className="mt-3 text-2xl font-semibold text-white">Trace decisions with audit and operations context.</h2>
+            <h2 className="mt-3 text-2xl font-semibold text-white">Track updates and important activity.</h2>
             <p className="mt-3 text-sm leading-7 text-slate-400">
-              Administrative users should be able to pivot from role control to communications, finance, and audited operational changes without losing tenant boundaries.
+              Admin teams should be able to move from access control to announcements, finance, and recent changes without losing context.
             </p>
             <Link href="/admin" className="mt-5 inline-flex rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-4 py-2 text-sm font-medium text-fuchsia-100 transition hover:bg-fuchsia-400/15">
               Open admin flow

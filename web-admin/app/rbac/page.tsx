@@ -30,6 +30,8 @@ export default function RbacPage() {
 
     async function load() {
       try {
+        const session = await getAdminSession();
+
         if (demoMode) {
           if (!cancelled) {
             setRoles(demoRoles);
@@ -39,7 +41,6 @@ export default function RbacPage() {
           return;
         }
 
-        const session = await getAdminSession();
         const headers = {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
@@ -65,6 +66,10 @@ export default function RbacPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof Error && loadError.message.includes("No admin session")) {
+            window.location.href = "/auth?role=Admin&redirect=%2Frbac";
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Unexpected error");
         }
       }

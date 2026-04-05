@@ -163,6 +163,8 @@ export default function StudentPage() {
 
     async function load() {
       try {
+        const session = await getAdminSession();
+
         if (demoMode) {
           if (!cancelled) {
             setState(demoState);
@@ -172,7 +174,6 @@ export default function StudentPage() {
           return;
         }
 
-        const session = await getAdminSession();
         const headers = {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
@@ -241,6 +242,10 @@ export default function StudentPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof Error && loadError.message.includes("No admin session")) {
+            window.location.href = "/auth?role=Student&redirect=%2Fstudent";
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Unexpected student workspace error.");
           setLoading(false);
         }

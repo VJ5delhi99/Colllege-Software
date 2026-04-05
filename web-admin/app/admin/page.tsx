@@ -142,6 +142,8 @@ export default function AdminPage() {
     let cancelled = false;
     async function load() {
       try {
+        const session = await getAdminSession();
+
         if (demoMode) {
           if (!cancelled) {
             setState(demoState);
@@ -151,7 +153,6 @@ export default function AdminPage() {
           return;
         }
 
-        const session = await getAdminSession();
         const headers = { Authorization: `Bearer ${session.accessToken}`, "X-Tenant-Id": session.user.tenantId };
         const responses = await Promise.all([
           fetch(`${apiConfig.identity()}/api/v1/users`, { headers }),
@@ -229,6 +230,10 @@ export default function AdminPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof Error && loadError.message.includes("No admin session")) {
+            window.location.href = "/auth?role=Admin&redirect=%2Fadmin";
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Unexpected admin workspace error.");
           setLoading(false);
         }

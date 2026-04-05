@@ -480,6 +480,8 @@ export default function OperationsPage() {
 
     async function load() {
       try {
+        const session = await getAdminSession();
+
         if (demoMode) {
           if (!cancelled) {
             setNotifications(demoNotifications);
@@ -500,7 +502,6 @@ export default function OperationsPage() {
           return;
         }
 
-        const session = await getAdminSession();
         const headers = {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
@@ -578,6 +579,10 @@ export default function OperationsPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof Error && loadError.message.includes("No admin session")) {
+            window.location.href = "/auth?role=Operations&redirect=%2Fops";
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Unexpected operations error.");
         }
       } finally {

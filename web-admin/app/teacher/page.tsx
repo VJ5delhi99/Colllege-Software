@@ -165,6 +165,8 @@ export default function TeacherPage() {
 
     async function load() {
       try {
+        const session = await getAdminSession();
+
         if (demoMode) {
           if (!cancelled) {
             setState(demoState);
@@ -174,7 +176,6 @@ export default function TeacherPage() {
           return;
         }
 
-        const session = await getAdminSession();
         const headers = {
           Authorization: `Bearer ${session.accessToken}`,
           "X-Tenant-Id": session.user.tenantId
@@ -242,6 +243,10 @@ export default function TeacherPage() {
         }
       } catch (loadError) {
         if (!cancelled) {
+          if (loadError instanceof Error && loadError.message.includes("No admin session")) {
+            window.location.href = "/auth?role=Teacher&redirect=%2Fteacher";
+            return;
+          }
           setError(loadError instanceof Error ? loadError.message : "Unexpected teacher workspace error.");
           setLoading(false);
         }

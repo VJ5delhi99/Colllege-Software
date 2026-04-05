@@ -63,13 +63,13 @@ const defaultCatalog: CatalogPayload = {
 };
 const defaultContent: ContentPayload = {
   tickerItems: [
-    "Admissions, campus visits, and scholarship guidance are available through the live platform.",
-    "Use the inquiry form to connect the public website directly to the operations workflow."
+    "Admissions help, campus visits, and scholarship guidance are available here.",
+    "Use the inquiry form to request a call or follow-up from the admissions team."
   ],
   announcements: [],
   admissionsJourney: [
     { title: "Discover programs", detail: "Search live programs by campus and study level." },
-    { title: "Talk to admissions", detail: "Share your interest so the team can follow up from the ops workspace." },
+    { title: "Talk to admissions", detail: "Share your interest so the admissions team can contact you." },
     { title: "Plan the next step", detail: "Move into counseling, visit scheduling, and application readiness." }
   ],
   contact: {
@@ -81,18 +81,18 @@ const defaultContent: ContentPayload = {
 const roleCards = [
   {
     title: "Students",
-    description: "Results, attendance, next classes, and fee visibility without admin clutter.",
-    href: "/student"
+    description: "Attendance, results, fees, and requests in one student page.",
+    href: "/auth?role=Student&redirect=%2Fstudent"
   },
   {
     title: "Teachers",
-    description: "Attendance, course load, and communication kept close to day-to-day teaching decisions.",
-    href: "/teacher"
+    description: "Classes, attendance, marking, and student guidance in one teacher page.",
+    href: "/auth?role=Teacher&redirect=%2Fteacher"
   },
   {
     title: "Operations",
-    description: "Admissions, audit visibility, notifications, and role-aware control in one place.",
-    href: "/ops"
+    description: "Admissions, support, and daily college follow-up tools for staff teams.",
+    href: "/auth?role=Operations&redirect=%2Fops"
   }
 ];
 
@@ -140,7 +140,7 @@ export default function PublicHomepage() {
         ]);
 
         if (!catalogResponse.ok || !contentResponse.ok) {
-          throw new Error("Public content is temporarily running with partial data while the live services warm up.");
+          throw new Error("Some website information is still loading. Please try again in a moment.");
         }
 
         const [catalogPayload, contentPayload] = await Promise.all([
@@ -156,7 +156,7 @@ export default function PublicHomepage() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Public content is temporarily unavailable.");
+          setError(loadError instanceof Error ? loadError.message : "Some website information is temporarily unavailable.");
         }
       } finally {
         if (!cancelled) {
@@ -183,7 +183,7 @@ export default function PublicHomepage() {
       try {
         const response = await fetch(`${apiConfig.organization()}/api/v1/public/programs?${buildProgramQuery(deferredSearch, selectedCampus, selectedLevel)}`);
         if (!response.ok) {
-          throw new Error("Program explorer is temporarily unavailable.");
+          throw new Error("The program list is temporarily unavailable.");
         }
 
         const payload = (await response.json()) as ProgramItem[];
@@ -217,6 +217,23 @@ export default function PublicHomepage() {
   }, [catalog.campusOptions.length, catalog.featuredPrograms, deferredSearch, selectedCampus, selectedLevel]);
 
   const featuredCampus = useMemo(() => catalog.campuses[0], [catalog.campuses]);
+  const schoolHighlights = useMemo(() => {
+    const grouped = new Map<string, { departmentName: string; levels: Set<string>; count: number }>();
+    for (const program of catalog.featuredPrograms) {
+      const current = grouped.get(program.departmentName) ?? {
+        departmentName: program.departmentName,
+        levels: new Set<string>(),
+        count: 0
+      };
+      current.levels.add(program.levelName);
+      current.count += 1;
+      grouped.set(program.departmentName, current);
+    }
+
+    return Array.from(grouped.values())
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 6);
+  }, [catalog.featuredPrograms]);
 
   async function handleInquirySubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -256,94 +273,120 @@ export default function PublicHomepage() {
     }
   }
 
+  function focusInquiry(programName?: string, campusName?: string) {
+    if (programName || campusName) {
+      setForm((current) => ({
+        ...current,
+        interestedProgram: programName ?? current.interestedProgram,
+        preferredCampus: campusName ?? current.preferredCampus
+      }));
+    }
+
+    if (typeof window !== "undefined") {
+      document.getElementById("inquiry")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   return (
-    <main className="panel-grid min-h-screen overflow-x-hidden text-slate-100">
-      <section className="relative isolate px-4 pb-16 pt-4 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <header className="sticky top-4 z-20 rounded-[2rem] border border-white/10 bg-[rgba(8,20,36,0.78)] px-5 py-4 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur sm:px-7">
+    <main className="min-h-screen overflow-x-hidden bg-[#f4efe6] text-slate-900">
+      <section className="border-b border-slate-200 bg-[#153a31] px-4 py-3 text-sm text-[#f8f4ed] sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-4">
+            <span>{content.contact.phone}</span>
+            <span>{content.contact.email}</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <a href="#inquiry" className="transition hover:text-white">Admissions</a>
+            <a href="#announcements" className="transition hover:text-white">Updates</a>
+            <Link href="/auth" className="font-medium text-white underline underline-offset-4">Student / Faculty Login</Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative isolate px-4 pb-10 pt-5 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl rounded-[2rem] border border-[#d7cfbf] bg-[#fbf8f2] shadow-[0_20px_60px_rgba(34,33,28,0.08)]">
+          <header className="rounded-t-[2rem] border-b border-[#e3dccd] px-5 py-5 sm:px-7">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.45em] text-cyan-300/90">University360</p>
+                <p className="text-xs uppercase tracking-[0.45em] text-[#7a674d]">University360</p>
                 <div className="mt-2 flex flex-wrap items-center gap-3">
-                  <h1 className="text-2xl font-semibold text-white sm:text-3xl">College Management Platform</h1>
-                  <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-emerald-200">
-                    Live admissions + campus ops
+                  <h1 className="text-2xl font-semibold text-[#12263a] sm:text-3xl">College Management Platform</h1>
+                  <span className="rounded-full border border-[#d7cfbf] bg-[#efe7d7] px-3 py-1 text-xs font-medium uppercase tracking-[0.22em] text-[#7a674d]">
+                    Admissions 2026
                   </span>
                 </div>
               </div>
 
-              <nav className="flex flex-wrap items-center gap-3 text-sm text-slate-300">
-                <a href="#programs" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Programs</a>
-                <a href="#campuses" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Campuses</a>
-                <a href="#announcements" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Announcements</a>
-                <a href="#inquiry" className="rounded-full px-3 py-2 transition hover:bg-white/10 hover:text-white">Admissions</a>
-                <Link href="/auth" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 font-medium text-white transition hover:bg-white/10">
+              <nav className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                <a href="#programs" className="rounded-full px-3 py-2 transition hover:bg-[#efe7d7] hover:text-slate-950">Programs</a>
+                <a href="#schools" className="rounded-full px-3 py-2 transition hover:bg-[#efe7d7] hover:text-slate-950">Schools</a>
+                <a href="#campuses" className="rounded-full px-3 py-2 transition hover:bg-[#efe7d7] hover:text-slate-950">Campuses</a>
+                <a href="#announcements" className="rounded-full px-3 py-2 transition hover:bg-[#efe7d7] hover:text-slate-950">Announcements</a>
+                <Link href="/auth" className="rounded-full border border-[#d7cfbf] bg-white px-4 py-2 font-medium text-[#12263a] transition hover:bg-[#f8f3ea]">
                   Login
                 </Link>
-                <a href="#inquiry" className="rounded-full bg-cyan-300 px-4 py-2 font-semibold text-slate-950 transition hover:bg-cyan-200">
+                <a href="#inquiry" className="rounded-full bg-[#153a31] px-4 py-2 font-semibold text-white transition hover:bg-[#0f2d26]">
                   Apply Now
                 </a>
               </nav>
             </div>
           </header>
 
-          <div className="mt-5 overflow-hidden rounded-[1.6rem] border border-cyan-300/15 bg-[rgba(12,29,48,0.72)] px-4 py-3 shadow-[0_12px_40px_rgba(0,0,0,0.18)] backdrop-blur">
-            <div className="ticker-track whitespace-nowrap text-sm text-cyan-100">
+          <div className="overflow-hidden border-b border-[#e3dccd] bg-[#efe7d7] px-4 py-3">
+            <div className="ticker-track whitespace-nowrap text-sm text-[#325f54]">
               {[...content.tickerItems, ...content.tickerItems].map((item, index) => (
                 <span key={`${item}-${index}`} className="mx-6 inline-flex items-center gap-3">
-                  <span className="inline-block h-2 w-2 rounded-full bg-amber-300" />
+                  <span className="inline-block h-2 w-2 rounded-full bg-[#b58c2a]" />
                   {item}
                 </span>
               ))}
             </div>
           </div>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-            <section className="relative overflow-hidden rounded-[2.2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(7,18,34,0.95),rgba(14,40,73,0.86)_58%,rgba(5,13,25,0.96))] p-6 shadow-[0_32px_100px_rgba(3,10,20,0.5)] sm:p-8 lg:p-10">
-              <div className="absolute inset-y-0 right-[-8%] hidden aspect-square w-[48%] rounded-full bg-cyan-300/10 blur-3xl lg:block" />
-              <div className="absolute -bottom-16 left-10 h-40 w-40 rounded-full bg-amber-300/10 blur-3xl" />
+          <div className="grid gap-0 lg:grid-cols-[1.08fr_0.92fr]">
+            <section className="relative overflow-hidden px-6 py-8 sm:px-8 sm:py-10 lg:p-10">
               <div className="relative">
-                <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-cyan-100">
-                  Public discovery connected to operations
+                <span className="rounded-full border border-[#d7cfbf] bg-[#efe7d7] px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-[#7a674d]">
+                  Public discovery connected to admissions
                 </span>
-                <h2 className="mt-6 max-w-3xl text-4xl font-semibold leading-tight text-white sm:text-5xl lg:text-6xl">
-                  Explore campuses, compare programs, and move directly into admissions support.
+                <h2 className="mt-6 max-w-3xl text-4xl font-semibold leading-tight text-[#12263a] sm:text-5xl lg:text-6xl">
+                  Explore campuses, compare programs, and move into admissions without the clutter.
                 </h2>
-                <p className="mt-5 max-w-2xl text-base leading-8 text-slate-300">
-                  The public site now reflects live campus and program data instead of static brochure copy, and every inquiry can flow into the authenticated operations workspace.
+                <p className="mt-5 max-w-2xl text-base leading-8 text-slate-600">
+                  The website now feels more like a real university site: clear course information first, simpler navigation, cleaner layout, and an easy way to talk to admissions.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
-                  <a href="#programs" className="rounded-full bg-cyan-300 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200">Discover Programs</a>
-                  <a href="#inquiry" className="rounded-full border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Talk to Admissions</a>
+                  <a href="#programs" className="rounded-full bg-[#153a31] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#0f2d26]">Discover Programs</a>
+                  <button type="button" onClick={() => focusInquiry()} className="rounded-full border border-[#d7cfbf] bg-white px-6 py-3 text-sm font-semibold text-[#12263a] transition hover:bg-[#f8f3ea]">Talk to Admissions</button>
                 </div>
                 <div className="mt-10 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   {catalog.stats.map((item) => (
-                    <div key={item.label} className="rounded-[1.4rem] border border-white/10 bg-white/6 px-4 py-4 backdrop-blur">
-                      <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{item.label}</p>
-                      <p className="mt-3 text-2xl font-semibold text-white">{loading ? "..." : item.value}</p>
+                    <div key={item.label} className="rounded-[1.4rem] border border-[#e3dccd] bg-white px-4 py-4">
+                      <p className="text-xs uppercase tracking-[0.22em] text-[#8d7758]">{item.label}</p>
+                      <p className="mt-3 text-2xl font-semibold text-[#12263a]">{loading ? "..." : item.value}</p>
                     </div>
                   ))}
                 </div>
-                {error ? <div className="mt-6 rounded-[1.4rem] border border-amber-300/20 bg-amber-400/10 px-4 py-4 text-sm leading-6 text-amber-50">{error}</div> : null}
+                {error ? <div className="mt-6 rounded-[1.4rem] border border-amber-300 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-900">{error}</div> : null}
               </div>
             </section>
 
-            <aside className="grid gap-5">
-              <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[rgba(12,24,41,0.82)] shadow-[0_24px_70px_rgba(0,0,0,0.28)] backdrop-blur">
-                <div className="border-b border-white/10 px-6 py-5">
-                  <p className="text-xs uppercase tracking-[0.35em] text-cyan-300">Featured campus</p>
-                  <h3 className="mt-3 text-2xl font-semibold text-white">{featuredCampus?.name ?? "Campus network"}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-400">{featuredCampus?.description ?? "Browse the live multi-campus structure across the institution."}</p>
+            <aside className="grid gap-5 border-t border-[#e3dccd] bg-[#efe7d7] px-6 py-8 sm:px-8 lg:border-l lg:border-t-0">
+              <div className="overflow-hidden rounded-[2rem] border border-[#d7cfbf] bg-white shadow-[0_20px_60px_rgba(34,33,28,0.08)]">
+                <div className="border-b border-[#e3dccd] px-6 py-5">
+                  <p className="text-xs uppercase tracking-[0.35em] text-[#7a674d]">Featured campus</p>
+                  <h3 className="mt-3 text-2xl font-semibold text-[#12263a]">{featuredCampus?.name ?? "Campus network"}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">{featuredCampus?.description ?? "Browse the live multi-campus structure across the institution."}</p>
                 </div>
                 <img src={featuredCampus?.image ?? "/images/graduation-hero.svg"} alt={featuredCampus?.name ?? "Featured campus"} className="h-72 w-full object-cover" />
               </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-[rgba(12,24,41,0.82)] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.28)] backdrop-blur">
-                <p className="text-xs uppercase tracking-[0.35em] text-amber-200">Why this is stronger</p>
-                <div className="mt-4 space-y-4 text-sm leading-7 text-slate-300">
-                  <p>Public content, campus data, and programs now come from live service contracts.</p>
-                  <p>Admissions leads are captured for follow-up instead of ending in static contact copy.</p>
-                  <p>Role workspaces stay available, but no longer compete with the public homepage for attention.</p>
+              <div className="rounded-[2rem] bg-[#153a31] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.12)]">
+                <p className="text-xs uppercase tracking-[0.35em] text-[#c7d9cf]">Why this is cleaner</p>
+                <div className="mt-4 space-y-4 text-sm leading-7 text-[#edf4ef]">
+                  <p>Course and campus information stays up to date.</p>
+                  <p>Inquiry forms now reach the admissions team instead of stopping at a contact section.</p>
+                  <p>Student and staff pages are still available, but they no longer take over the main website.</p>
                 </div>
               </div>
             </aside>
@@ -351,14 +394,15 @@ export default function PublicHomepage() {
         </div>
       </section>
 
-      <section className="px-4 py-6 sm:px-6 lg:px-8">
+      <section className="px-4 py-6 sm:px-6 lg:px-8" id="schools">
         <div className="mx-auto grid max-w-7xl gap-5 md:grid-cols-3">
-          {roleCards.map((item) => (
-            <Link key={item.title} href={item.href} className="group rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.8)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur transition hover:-translate-y-1 hover:border-cyan-300/30">
-              <h3 className="text-2xl font-semibold text-white">{item.title}</h3>
-              <p className="mt-3 text-sm leading-7 text-slate-400">{item.description}</p>
-              <p className="mt-5 text-sm font-medium text-cyan-100">Open workspace</p>
-            </Link>
+          {schoolHighlights.slice(0, 3).map((item) => (
+            <article key={item.departmentName} className="rounded-[1.8rem] border border-[#ddd4c4] bg-[#fbf8f2] p-6 shadow-[0_18px_52px_rgba(34,33,28,0.06)]">
+              <p className="text-xs uppercase tracking-[0.22em] text-[#8d7758]">School highlight</p>
+              <h3 className="mt-3 text-2xl font-semibold text-[#12263a]">{item.departmentName}</h3>
+              <p className="mt-3 text-sm leading-7 text-slate-600">{item.count} featured pathways across {Array.from(item.levels).join(", ")} programs.</p>
+              <a href="#programs" className="mt-5 inline-flex text-sm font-medium text-[#153a31] hover:text-[#0f2d26]">View programs</a>
+            </article>
           ))}
         </div>
       </section>
@@ -367,22 +411,22 @@ export default function PublicHomepage() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Program explorer</p>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Search live academic pathways</h2>
+              <p className="text-xs uppercase tracking-[0.3em] text-[#8d7758]">Program explorer</p>
+              <h2 className="mt-3 text-3xl font-semibold text-[#12263a] sm:text-4xl">Search live academic pathways</h2>
             </div>
-            <p className="max-w-2xl text-sm leading-7 text-slate-400">This section is backed by the public catalog API so applicants can browse programs by campus and study level.</p>
+            <p className="max-w-2xl text-sm leading-7 text-slate-600">Search by campus and level, then send an inquiry with the program already filled in.</p>
           </div>
 
-          <div className="mt-6 rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.82)] p-5 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+          <div className="mt-6 rounded-[1.8rem] border border-[#ddd4c4] bg-[#fbf8f2] p-5 shadow-[0_18px_52px_rgba(34,33,28,0.06)]">
             <div className="grid gap-3 lg:grid-cols-[1.4fr_0.8fr_0.8fr]">
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by program, code, department, or career path" className="rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3 text-white outline-none" />
-              <select value={selectedCampus} onChange={(event) => setSelectedCampus(event.target.value)} className="rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3 text-white outline-none">
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by program, code, department, or career path" className="rounded-[1.1rem] border border-[#d7cfbf] bg-white px-4 py-3 text-slate-900 outline-none" />
+              <select value={selectedCampus} onChange={(event) => setSelectedCampus(event.target.value)} className="rounded-[1.1rem] border border-[#d7cfbf] bg-white px-4 py-3 text-slate-900 outline-none">
                 <option value="">All campuses</option>
-                {catalog.campusOptions.map((campus) => <option key={campus.id} value={campus.id} className="bg-slate-950">{campus.name}</option>)}
+                {catalog.campusOptions.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}
               </select>
-              <select value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value)} className="rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3 text-white outline-none">
+              <select value={selectedLevel} onChange={(event) => setSelectedLevel(event.target.value)} className="rounded-[1.1rem] border border-[#d7cfbf] bg-white px-4 py-3 text-slate-900 outline-none">
                 <option value="">All levels</option>
-                {catalog.levelOptions.map((level) => <option key={level} value={level} className="bg-slate-950">{level}</option>)}
+                {catalog.levelOptions.map((level) => <option key={level} value={level}>{level}</option>)}
               </select>
             </div>
 
@@ -390,22 +434,30 @@ export default function PublicHomepage() {
               {programs.map((program) => {
                 const campus = catalog.campuses.find((item) => item.id === program.campusId);
                 return (
-                  <article key={program.id} className="rounded-[1.6rem] border border-white/10 bg-slate-950/35 p-5">
+                  <article key={program.id} className="rounded-[1.6rem] border border-[#e3dccd] bg-white p-5">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-100">{program.levelName}</span>
+                      <span className="rounded-full border border-[#d7cfbf] bg-[#efe7d7] px-3 py-1 text-xs uppercase tracking-[0.2em] text-[#7a674d]">{program.levelName}</span>
                       <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{program.code}</span>
                     </div>
-                    <h3 className="mt-4 text-2xl font-semibold text-white">{program.name}</h3>
-                    <p className="mt-3 text-sm leading-7 text-slate-400">{program.description}</p>
-                    <p className="mt-4 text-sm leading-6 text-slate-300">{program.departmentName} | {program.durationYears} years | {program.seats} seats</p>
-                    <p className="mt-2 text-sm leading-6 text-cyan-100/90">{campus?.name ?? "Campus network"} | {program.mode}</p>
-                    <p className="mt-3 text-sm leading-6 text-slate-400">Career path: {program.careerPath}</p>
+                    <h3 className="mt-4 text-2xl font-semibold text-[#12263a]">{program.name}</h3>
+                    <p className="mt-3 text-sm leading-7 text-slate-600">{program.description}</p>
+                    <p className="mt-4 text-sm leading-6 text-slate-700">{program.departmentName} | {program.durationYears} years | {program.seats} seats</p>
+                    <p className="mt-2 text-sm leading-6 text-[#325f54]">{campus?.name ?? "Campus network"} | {program.mode}</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">Career path: {program.careerPath}</p>
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <button type="button" onClick={() => focusInquiry(program.name, campus?.name)} className="rounded-full bg-[#153a31] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f2d26]">
+                        Enquire Now
+                      </button>
+                      <a href="#campuses" className="rounded-full border border-[#d7cfbf] px-4 py-2 text-sm font-semibold text-[#12263a] transition hover:bg-[#f8f3ea]">
+                        View Campus
+                      </a>
+                    </div>
                   </article>
                 );
               })}
             </div>
 
-            {!programLoading && programs.length === 0 ? <div className="mt-6 rounded-[1.4rem] border border-dashed border-white/15 bg-white/4 px-4 py-6 text-sm text-slate-400">No programs matched the current filters.</div> : null}
+            {!programLoading && programs.length === 0 ? <div className="mt-6 rounded-[1.4rem] border border-dashed border-[#d7cfbf] bg-[#f8f3ea] px-4 py-6 text-sm text-slate-600">No programs matched the current filters.</div> : null}
           </div>
         </div>
       </section>
@@ -414,31 +466,34 @@ export default function PublicHomepage() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Campus network</p>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">College and campus structure made visible</h2>
+              <p className="text-xs uppercase tracking-[0.3em] text-[#8d7758]">Campus network</p>
+              <h2 className="mt-3 text-3xl font-semibold text-[#12263a] sm:text-4xl">College and campus structure made visible</h2>
             </div>
-            <p className="max-w-2xl text-sm leading-7 text-slate-400">The multi-college model is now surfaced clearly for applicants and staff instead of being implied in the documentation only.</p>
+            <p className="max-w-2xl text-sm leading-7 text-slate-600">The multi-college model is now surfaced clearly for applicants and staff instead of being implied in documentation only.</p>
           </div>
 
           <div className="mt-6 grid gap-5 xl:grid-cols-3">
             {catalog.campuses.map((campus) => (
-              <article key={campus.id} className="overflow-hidden rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.8)] shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+              <article key={campus.id} className="overflow-hidden rounded-[1.8rem] border border-[#ddd4c4] bg-[#fbf8f2] shadow-[0_18px_52px_rgba(34,33,28,0.06)]">
                 <img src={campus.image} alt={campus.name} className="h-56 w-full object-cover" />
                 <div className="p-6">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-2xl font-semibold text-white">{campus.name}</h3>
-                      <p className="mt-1 text-sm text-cyan-100">{campus.location}</p>
+                      <h3 className="text-2xl font-semibold text-[#12263a]">{campus.name}</h3>
+                      <p className="mt-1 text-sm text-[#325f54]">{campus.location}</p>
                     </div>
-                    <div className="rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3 text-right">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{campus.statLabel}</p>
-                      <p className="mt-1 text-xl font-semibold text-white">{campus.statValue}</p>
+                    <div className="rounded-[1.1rem] border border-[#e3dccd] bg-white px-4 py-3 text-right">
+                      <p className="text-xs uppercase tracking-[0.18em] text-[#8d7758]">{campus.statLabel}</p>
+                      <p className="mt-1 text-xl font-semibold text-[#12263a]">{campus.statValue}</p>
                     </div>
                   </div>
-                  <p className="mt-4 text-sm leading-7 text-slate-400">{campus.description}</p>
+                  <p className="mt-4 text-sm leading-7 text-slate-600">{campus.description}</p>
                   <div className="mt-5 flex flex-wrap gap-2">
-                    {campus.facilities.map((item) => <span key={item} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300">{item}</span>)}
+                    {campus.facilities.slice(0, 4).map((item) => <span key={item} className="rounded-full border border-[#e3dccd] bg-white px-3 py-1 text-xs uppercase tracking-[0.16em] text-[#7a674d]">{item}</span>)}
                   </div>
+                  <button type="button" onClick={() => focusInquiry(undefined, campus.name)} className="mt-5 rounded-full border border-[#d7cfbf] px-4 py-2 text-sm font-semibold text-[#12263a] transition hover:bg-white">
+                    Request Campus Guidance
+                  </button>
                 </div>
               </article>
             ))}
@@ -450,21 +505,21 @@ export default function PublicHomepage() {
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Announcements</p>
-              <h2 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">Live public communication feed</h2>
+              <p className="text-xs uppercase tracking-[0.3em] text-[#8d7758]">Announcements</p>
+              <h2 className="mt-3 text-3xl font-semibold text-[#12263a] sm:text-4xl">Live public communication feed</h2>
             </div>
-            <p className="max-w-2xl text-sm leading-7 text-slate-400">These notices now come from the communication service, which keeps the public site aligned with the admin publishing flow.</p>
+            <p className="max-w-2xl text-sm leading-7 text-slate-600">These notices are updated from the main college system so the website stays current.</p>
           </div>
 
           <div className="mt-6 grid gap-5 lg:grid-cols-4">
-            {content.announcements.map((item) => (
-              <article key={item.id} className="rounded-[1.8rem] border border-white/10 bg-[rgba(10,21,37,0.8)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
+            {content.announcements.slice(0, 4).map((item) => (
+              <article key={item.id} className="rounded-[1.8rem] border border-[#ddd4c4] bg-[#fbf8f2] p-6 shadow-[0_18px_52px_rgba(34,33,28,0.06)]">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.22em] text-cyan-100">{item.badge}</span>
+                  <span className="rounded-full border border-[#d7cfbf] bg-[#efe7d7] px-3 py-1 text-xs uppercase tracking-[0.22em] text-[#7a674d]">{item.badge}</span>
                   <span className="text-xs uppercase tracking-[0.16em] text-slate-400">{item.publishedOn}</span>
                 </div>
-                <h3 className="mt-5 text-2xl font-semibold text-white">{item.title}</h3>
-                <p className="mt-4 text-sm leading-7 text-slate-400">{item.summary}</p>
+                <h3 className="mt-5 text-2xl font-semibold text-[#12263a]">{item.title}</h3>
+                <p className="mt-4 text-sm leading-7 text-slate-600">{item.summary}</p>
               </article>
             ))}
           </div>
@@ -473,29 +528,36 @@ export default function PublicHomepage() {
 
       <section className="px-4 py-10 sm:px-6 lg:px-8" id="inquiry">
         <div className="mx-auto grid max-w-7xl gap-5 lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="rounded-[2rem] border border-white/10 bg-[rgba(10,21,37,0.8)] p-6 shadow-[0_18px_52px_rgba(0,0,0,0.24)] backdrop-blur">
-            <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">Admissions journey</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white">Turn public interest into an operational workflow</h2>
+          <div className="rounded-[2rem] border border-[#ddd4c4] bg-[#fbf8f2] p-6 shadow-[0_18px_52px_rgba(34,33,28,0.06)]">
+            <p className="text-xs uppercase tracking-[0.3em] text-[#8d7758]">Admissions journey</p>
+            <h2 className="mt-3 text-3xl font-semibold text-[#12263a]">Turn interest into a guided admissions journey</h2>
             <div className="mt-6 space-y-4">
               {content.admissionsJourney.map((step, index) => (
-                <article key={step.title} className="rounded-[1.4rem] border border-white/10 bg-slate-950/35 px-4 py-4">
-                  <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Step {index + 1}</p>
-                  <h3 className="mt-2 text-xl font-semibold text-white">{step.title}</h3>
-                  <p className="mt-2 text-sm leading-7 text-slate-400">{step.detail}</p>
+                <article key={step.title} className="rounded-[1.4rem] border border-[#e3dccd] bg-white px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#8d7758]">Step {index + 1}</p>
+                  <h3 className="mt-2 text-xl font-semibold text-[#12263a]">{step.title}</h3>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">{step.detail}</p>
                 </article>
               ))}
             </div>
-            <div className="mt-6 rounded-[1.4rem] border border-white/10 bg-white/5 px-4 py-4">
-              <p className="text-sm font-medium text-white">Admissions contact</p>
-              <p className="mt-3 text-sm leading-7 text-slate-400">{content.contact.email}</p>
-              <p className="text-sm leading-7 text-slate-400">{content.contact.phone}</p>
-              <p className="text-sm leading-7 text-slate-400">{content.contact.office}</p>
+            <div className="mt-6 rounded-[1.4rem] border border-[#e3dccd] bg-[#f8f3ea] px-4 py-4">
+              <p className="text-sm font-medium text-[#12263a]">Admissions contact</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">{content.contact.email}</p>
+              <p className="text-sm leading-7 text-slate-600">{content.contact.phone}</p>
+              <p className="text-sm leading-7 text-slate-600">{content.contact.office}</p>
+            </div>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              {roleCards.map((item) => (
+                <Link key={item.title} href={item.href} className="rounded-[1.1rem] border border-[#d7cfbf] bg-white px-4 py-4 text-sm font-medium text-[#12263a] transition hover:bg-[#f8f3ea]">
+                  {item.title} Login
+                </Link>
+              ))}
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(16,30,48,0.95),rgba(27,50,80,0.86)_58%,rgba(8,18,34,0.96))] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.28)]">
-            <p className="text-xs uppercase tracking-[0.3em] text-amber-200">Inquiry form</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white">Request a guided admissions follow-up</h2>
+          <div className="rounded-[2rem] border border-[#12263a] bg-[#12263a] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.18)]">
+            <p className="text-xs uppercase tracking-[0.3em] text-[#d9e3ed]">Inquiry form</p>
+            <h2 className="mt-3 text-3xl font-semibold text-white">Request an admissions call or follow-up</h2>
 
             <form className="mt-6 space-y-4" onSubmit={handleInquirySubmit}>
               <div className="grid gap-4 sm:grid-cols-2">
@@ -521,25 +583,28 @@ export default function PublicHomepage() {
         </div>
       </section>
 
-      <footer className="border-t border-white/10 px-4 py-10 sm:px-6 lg:px-8">
+      <footer className="border-t border-[#ddd4c4] px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-cyan-300">University360</p>
-            <h2 className="mt-3 text-3xl font-semibold text-white">A more complete college platform from public trust to operational follow-through.</h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-400">Discovery, admissions, campus structure, and internal workspaces now point to the same service-backed operating model.</p>
+            <p className="text-xs uppercase tracking-[0.35em] text-[#8d7758]">University360</p>
+            <h2 className="mt-3 text-3xl font-semibold text-[#12263a]">A clearer university website from first visit to admissions follow-through.</h2>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600">Course search, admissions, campus information, and sign-in pages now connect more clearly across the same college system.</p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.8)] p-5 backdrop-blur">
-              <p className="text-sm font-medium text-white">Contact</p>
-              <p className="mt-3 text-sm leading-7 text-slate-400">{content.contact.email}</p>
-              <p className="text-sm leading-7 text-slate-400">{content.contact.phone}</p>
-              <p className="text-sm leading-7 text-slate-400">{content.contact.office}</p>
+            <div className="rounded-[1.6rem] border border-[#ddd4c4] bg-[#fbf8f2] p-5">
+              <p className="text-sm font-medium text-[#12263a]">Contact</p>
+              <a href={`mailto:${content.contact.email}`} className="mt-3 block text-sm leading-7 text-slate-600 hover:text-[#12263a]">{content.contact.email}</a>
+              <a href={`tel:${content.contact.phone.replace(/\s+/g, "")}`} className="block text-sm leading-7 text-slate-600 hover:text-[#12263a]">{content.contact.phone}</a>
+              <p className="text-sm leading-7 text-slate-600">{content.contact.office}</p>
             </div>
-            <div className="rounded-[1.6rem] border border-white/10 bg-[rgba(10,21,37,0.8)] p-5 backdrop-blur">
-              <p className="text-sm font-medium text-white">Quick links</p>
-              <p className="mt-3 text-sm leading-7 text-slate-400">Programs</p>
-              <p className="text-sm leading-7 text-slate-400">Admissions</p>
-              <p className="text-sm leading-7 text-slate-400">Student / Teacher / Operations</p>
+            <div className="rounded-[1.6rem] border border-[#ddd4c4] bg-[#fbf8f2] p-5">
+              <p className="text-sm font-medium text-[#12263a]">Quick links</p>
+              <div className="mt-3 flex flex-col gap-2 text-sm text-slate-600">
+                <a href="#programs" className="hover:text-[#12263a]">Programs</a>
+                <a href="#campuses" className="hover:text-[#12263a]">Campuses</a>
+                <a href="#inquiry" className="hover:text-[#12263a]">Admissions</a>
+                <Link href="/auth" className="hover:text-[#12263a]">Login</Link>
+              </div>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   confirmEmailVerification,
   confirmPasswordReset,
@@ -15,7 +15,7 @@ import { isDemoModeEnabled } from "../demo-mode";
 type AuthMode = "login" | "reset-request" | "reset-confirm" | "verify-send" | "verify-confirm";
 
 const modes: { id: AuthMode; label: string; description: string }[] = [
-  { id: "login", label: "Sign In", description: "Access the platform with your tenant, password, and optional MFA code." },
+  { id: "login", label: "Sign In", description: "Sign in with your college code, email, password, and optional verification code." },
   { id: "reset-request", label: "Request Reset", description: "Send a password reset code to your registered email address." },
   { id: "reset-confirm", label: "Reset Password", description: "Confirm your reset code and set a new password." },
   { id: "verify-send", label: "Send Verification", description: "Request a new email verification code." },
@@ -35,8 +35,20 @@ export default function AuthPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [redirectTo, setRedirectTo] = useState("/portal");
+  const [roleHint, setRoleHint] = useState<string | null>(null);
 
   const activeMode = useMemo(() => modes.find((item) => item.id === mode) ?? modes[0], [mode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    setRedirectTo(params.get("redirect") || "/portal");
+    setRoleHint(params.get("role"));
+  }, []);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,9 +59,9 @@ export default function AuthPage() {
     try {
       if (mode === "login") {
         await loginAdmin({ email, password, tenantId, mfaCode: mfaCode || undefined });
-        setMessage("Sign-in successful. Redirecting to the role portal...");
+        setMessage("Sign-in successful. Redirecting...");
         window.setTimeout(() => {
-          window.location.href = "/portal";
+          window.location.href = redirectTo;
         }, 400);
         return;
       }
@@ -85,11 +97,16 @@ export default function AuthPage() {
     <main className="panel-grid min-h-screen px-4 py-6 text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <section className="rounded-[2rem] border border-white/10 bg-[linear-gradient(135deg,rgba(7,18,34,0.95),rgba(14,40,73,0.86)_58%,rgba(5,13,25,0.96))] p-6 shadow-[0_32px_100px_rgba(3,10,20,0.5)] sm:p-8">
-          <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">Identity Access</p>
-          <h1 className="mt-4 text-4xl font-semibold text-white">Secure entry for admins, faculty, and staff.</h1>
+          <p className="text-xs uppercase tracking-[0.4em] text-cyan-300">Sign In</p>
+          <h1 className="mt-4 text-4xl font-semibold text-white">Student, teacher, and staff login.</h1>
           <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300">
-            Use your tenant-aware credentials to sign in, recover access, or complete email verification. This page replaces the scaffold-only hidden login behavior.
+            Use this page to sign in, recover your password, or verify your email address.
           </p>
+          {roleHint ? (
+            <div className="mt-5 rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+              Sign in to continue to the {roleHint.toLowerCase()} page.
+            </div>
+          ) : null}
 
           {demoMode ? (
             <div className="mt-6 rounded-[1.3rem] border border-cyan-300/20 bg-cyan-400/10 px-4 py-4 text-sm text-cyan-50">
@@ -131,13 +148,13 @@ export default function AuthPage() {
               Back to Homepage
             </Link>
             <Link href="/portal" className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
-              Open Role Portal
+              Open Main Menu
             </Link>
             <Link href="/ops" className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
-              Open Operations Hub
+              Open Admissions Page
             </Link>
             <Link href="/rbac" className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-cyan-400/15">
-              Open RBAC Console
+              Open Permissions Page
             </Link>
           </div>
         </section>
@@ -148,7 +165,7 @@ export default function AuthPage() {
 
           <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
             <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-200">Tenant ID</span>
+              <span className="mb-2 block text-sm font-medium text-slate-200">College Code</span>
               <input
                 value={tenantId}
                 onChange={(event) => setTenantId(event.target.value)}
@@ -184,12 +201,12 @@ export default function AuthPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-slate-200">MFA Code</span>
+                  <span className="mb-2 block text-sm font-medium text-slate-200">Verification Code</span>
                   <input
                     value={mfaCode}
                     onChange={(event) => setMfaCode(event.target.value)}
                     className="w-full rounded-[1.1rem] border border-white/10 bg-white/5 px-4 py-3 text-white outline-none"
-                    placeholder="Optional unless MFA is enabled"
+                    placeholder="Only needed if extra verification is turned on"
                   />
                 </label>
               </>
